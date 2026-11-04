@@ -141,6 +141,14 @@ profiles {
             executor  = 'awsbatch'
             queue     = '$JOB_QUEUE'
             container = 'public.ecr.aws/docker/library/ubuntu:22.04'
+            // Tags on every Batch job (and, via propagateTags, its ECS task). Activate them as
+            // cost allocation tags to get per-run and per-process cost in the Cost and Usage Report.
+            resourceLabels = { [
+                'nf-run'      : workflow.runName,
+                'nf-session'  : workflow.sessionId.toString(),
+                'nf-pipeline' : (workflow.manifest.name ?: workflow.scriptName),
+                'nf-process'  : task.process
+            ] }
         }
         workDir = 's3://$WORK_BUCKET/nextflow-batch/work'
         aws {

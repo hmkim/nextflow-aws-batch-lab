@@ -19,6 +19,7 @@ AWS Batch는 컨테이너 작업을 대규모로 실행하는 관리형 서비�
 | `main.nf` | GreetingsNF. 프로세스 하나짜리 Nextflow 파이프라인으로, HealthOmics 워크숍에서 프라이빗 워크플로로 등록하는 파일과 같습니다. `nextflow run hmkim/nextflow-aws-batch-lab`이 동작하도록 리포지토리 루트에 두었습니다. |
 | `cfn/batch-nextflow.yaml` | CloudFormation 템플릿. IAM 인스턴스 역할, EC2 시작 템플릿, 관리형 컴퓨팅 환경(0~16 vCPU), 작업 큐. Mountpoint for Amazon S3 선택 모드 포함. |
 | `scripts/setup-nextflow-batch.sh` | 한 번에 끝나는 멱등 설정 스크립트. Java 17과 Nextflow 24.10 설치, 템플릿 배포, `nextflow.config` 작성. |
+| `scripts/run-cost.py` | 트레이스 파일로 실행 비용을 프로세스별·인스턴스별로 추정합니다. |
 | `pipeline/ref-check.nf` | 선택 사항. 참조 파일을 스테이징하지 않고 Mountpoint for Amazon S3 마운트를 통해 읽습니다. |
 | `docs/` | 한국어 가이드와 콘솔 스크린샷. |
 
@@ -416,9 +417,91 @@ and report the value."
 | 데이터 스테이징 | 서비스가 관리하는 공유 파일 시스템 | Nextflow가 인스턴스의 AWS CLI로 태스크마다 S3에서 스테이징 |
 | 측정한 첫 태스크 지연 | 약 1~2분 | 콜드 3분 29초, 웜 5초 |
 | 로그 | CloudWatch, 실행 단위로 묶임 | `/aws/batch/job`에 작업마다 CloudWatch 스트림 하나, S3의 `.command.*` 파일 |
+| 태스크별 비용 | 모든 실행에 표시: 태스크마다 인스턴스 유형과 가격 | 유도해야 함: 지금은 `run-cost.py`로 추정, 하루 뒤 CUR의 Split Cost Allocation Data |
 | 운영할 것 | 실행 사이에는 없음 | 용량, AMI 업데이트, 헤드 노드, 작업 디렉터리 수명 주기 |
 
 어느 쪽이 더 낫다고 말할 수는 없습니다. HealthOmics는 운영 부담을 없애고 실행 단위로 과금하며, Batch는 모든 설정을 열어 두어 서비스가 제공하지 않는 하드웨어나 소프트웨어가 필요할 때, 또는 플랫폼의 나머지 부분이 이미 Batch에서 돌아갈 때 알맞습니다. 같은 `main.nf`로 둘 중 어느 쪽이든 대상으로 삼을 수 있습니다.
+
+## 비용 측정
+
+AWS Batch 자체에는 요금이 없습니다. 실행 비용은 컴퓨팅 환경의 EC2 인스턴스(그리고 그 EBS 볼륨, S3 작업 디렉터리, CloudWatch Logs. 모두 그에 비해 작습니다)이고, 인스턴스 하나를 여러 작업이 나눠 씁니다. 따라서 "작업별 비용"은 청구서에 존재하지 않습니다. 각 인스턴스의 비용을 그 위에서 돌아간 작업들에 나눠 계산해야 합니다. 방법은 두 가지입니다. 실행 기록으로 즉시 내는 추정치와, AWS가 하루 뒤에 내놓는 정확한 수치입니다.
+
+### 즉시: `scripts/run-cost.py`
+
+스크립트는 실행의 트레이스 파일을 읽고, Batch에 작업마다 자원 요청·시작·종료 시각과 실행된 인스턴스를 물어보고, 그 인스턴스의 온디맨드 가격을 조회해 두 가지 합계를 출력합니다.
+
+- **attributed(귀속)**: 태스크가 쓴 몫. 인스턴스 가격 × 작업 실행 시간 × 작업이 예약한 인스턴스 vCPU 또는 메모리 비율(둘 중 큰 쪽). AWS Split Cost Allocation Data(아래)와 같은 배분 규칙을 로컬에서 계산한 것입니다.
+- **incurred(발생)**: EC2가 실제로 청구한 금액. 실행이 사용한 각 인스턴스를 시작부터 종료까지 시간당 가격으로 계산합니다.
+
+```bash
+uv run --with boto3 scripts/run-cost.py trace-sarek.txt
+```
+
+sarek 테스트 실행의 출력(일부 생략):
+
+```
+Run: trace-sarek.txt   tasks: 23   region: us-east-1
+
+process                                                    tasks   runtime      wait  attributed
+NFCORE_SAREK:SAREK:FASTQ_ALIGN_BWAMEM_MEM2_DRAGMAP_SENTIEO     2       25s       41s $   0.0023
+NFCORE_SAREK:SAREK:MULTIQC                                     1       27s       36s $   0.0020
+NFCORE_SAREK:SAREK:BAM_MARKDUPLICATES:GATK4_MARKDUPLICATES     1       19s       28s $   0.0018
+NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6m23s $   0.0010
+...
+TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
+
+instance             type             $/h  jobs      span   incurred  attributed
+i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
+
+Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.
+```
+
+실행 전체가 6센트이고, 그중 5분의 1만 태스크에 쓰였습니다. FASTQC 작업 두 개는 첫 인스턴스를 6분 기다린 뒤 각각 10초 실행됐습니다. 이 비율이 0으로 축소되는 환경에서 작은 테스트 파이프라인을 돌릴 때의 모습이고, 몇 시간짜리 정렬 작업이 있는 운영 실행은 인스턴스를 훨씬 빽빽하게 채웁니다. 컴퓨팅 환경의 `MinvCpus`, 스팟 요금, 더 큰 인스턴스 유형이 모두 이 숫자를 움직이며, 이 스크립트로 각각의 효과를 측정할 수 있습니다.
+
+스크립트는 파이프라인이 끝난 뒤 1시간 안에 실행하세요. 그 뒤에는 종료된 인스턴스가 EC2·ECS API에서 사라져서, 스크립트는 귀속 비용을 Fargate의 vCPU·GB 단가로 대신 계산하고 해당 행에 `*`를 표시하며, 발생 비용은 전혀 계산하지 못합니다. 필요한 권한은 `batch:DescribeJobs`, `ecs:DescribeContainerInstances`, `ec2:DescribeInstances`, `pricing:GetProducts`, `ssm:GetParameter`입니다.
+
+### 정확한 수치: 비용 할당 태그와 Split Cost Allocation Data
+
+실제 워크로드에는 청구 데이터 자체를 쓰세요. 생성된 `nextflow.config`는 이미 모든 Batch 작업에 실행 이름, 세션 ID, 파이프라인, 프로세스 이름을 태그로 붙입니다.
+
+```groovy
+process.resourceLabels = { [
+    'nf-run'      : workflow.runName,
+    'nf-session'  : workflow.sessionId.toString(),
+    'nf-pipeline' : (workflow.manifest.name ?: workflow.scriptName),
+    'nf-process'  : task.process
+] }
+```
+
+Nextflow는 이것을 `SubmitJob`의 태그로 넘기고 작업 정의를 `propagateTags`로 등록하므로 태그가 ECS 태스크까지 전달됩니다. `aws batch describe-jobs --jobs <id> --query 'jobs[0].tags'`로 확인할 수 있습니다. (클로저 형태가 중요합니다. 일반 맵은 설정 파싱 시점에 평가되는데 그때는 `workflow`가 아직 없습니다.) Batch는 여기에 `aws:batch:job-queue`, `aws:batch:compute-environment`, `aws:batch:job-definition` 태그를 더합니다.
+
+[Split Cost Allocation Data](https://docs.aws.amazon.com/cur/latest/userguide/split-cost-allocation-data.html)가 이 태그를 금액으로 바꿉니다. Cost and Usage Report에 ECS 태스크마다 행을 추가하고, 인스턴스 비용을 태스크들이 예약한 CPU·메모리 비율로 나눠 넣고, 태스크의 태그를 그 행에 적용합니다. AWS Batch 작업은 ECS 태스크이므로 그대로 적용됩니다([발표 글](https://aws.amazon.com/blogs/aws-cloud-financial-management/la-improve-cost-visibility-of-containerized-applications-with-aws-split-cost-allocation-data-for-ecs-and-batch-jobs/)). 지불 계정의 Billing and Cost Management 콘솔에서 한 번만 설정하면 되고, 모두 무료입니다.
+
+1. **Cost allocation tags**: `nf-run`, `nf-pipeline`, `nf-process`를 활성화합니다(태그가 붙은 첫 작업이 실행된 뒤 목록에 나타납니다).
+2. **Cost Management preferences**: *Split cost allocation data*에서 Amazon ECS를 옵트인합니다.
+3. **Data Exports**: S3로 CUR 2.0 내보내기를 만들고 *Include split cost allocation data*를 체크합니다. Athena로 쿼리합니다.
+
+데이터는 사용 후 약 24시간 뒤에, Cost Explorer가 아닌 내보내기에만 나타납니다. 한 실행을 프로세스별로 나눠 보는 쿼리:
+
+```sql
+SELECT resource_tags['user_nf_process']        AS process,
+       COUNT(*)                                 AS task_hours,
+       SUM(split_line_item_split_cost)          AS used_usd,
+       SUM(split_line_item_unused_cost)         AS idle_share_usd
+FROM   cur2
+WHERE  resource_tags['user_nf_run'] = 'reverent_williams'
+GROUP  BY 1 ORDER BY 3 DESC;
+```
+
+`split_line_item_split_cost`는 태스크가 소비한 몫, `split_line_item_unused_cost`는 인스턴스 유휴 용량 중 그 태스크에 배분된 몫입니다. 실행 단위로 합치면 사용한 인스턴스의 EC2 항목과 일치하며, `run-cost.py`가 근사하는 것이 바로 이 대조입니다. 한 달 동안의 실행별 비용은 `user_nf_process` 대신 `user_nf_run`으로 묶으면 됩니다.
+
+이 경로는 결제 콘솔 접근이 없는 워크숍 샌드박스 계정에서는 쓸 수 없습니다. 자기 계정에서 설정하세요.
+
+### HealthOmics는 어떻게 하나
+
+HealthOmics는 서비스가 소유한 인스턴스에서 태스크 단위로 과금하므로 모든 실행이 태스크 수준 비용을 이미 보여 줍니다. 콘솔의 실행 페이지가 태스크마다 인스턴스 유형과 가격을 나열하고, `aws omics get-run-task`가 같은 값을 반환합니다. 설정할 것도, 기다릴 것도 없습니다. 그 편의가 관리형 서비스가 받는 요금의 일부이고, Batch에서는 인스턴스를 그대로 받아 귀속 계산을 직접 만듭니다. 이 랩이 계속 돌아오는 맞바꿈이 그것입니다.
 
 ## 운영 환경 메모
 
@@ -441,11 +524,7 @@ process {
 
 **태스크 크기를 명시합니다.** 모든 프로세스에 `cpus`와 `memory`를 줍니다(위 실험 참고). Batch는 이 숫자로 호스트에 컨테이너를 채우므로, 크기 없는 태스크는 1 vCPU / 1 GiB를 받아 모자라거나 인스턴스를 낭비합니다.
 
-**비용 배분을 위해 작업에 태그를 붙입니다.** `resourceLabels`는 각 작업의 AWS 태그가 되고, 비용 할당 태그를 켜면 Cost Explorer에 나타납니다:
-
-```groovy
-process.resourceLabels = [ project: 'genomics-lab', owner: 'team-a' ]
-```
+**비용 배분을 위해 작업에 태그를 붙입니다.** 생성된 설정은 이미 실행·세션·파이프라인·프로세스 태그를 작업에 붙입니다(비용 측정 절 참고). 프로젝트나 팀 같은 키를 같은 맵에 추가하면, 비용 할당 태그를 활성화한 뒤 Cost Explorer와 CUR에 나타납니다.
 
 **지연이 중요하면 최소 용량을 유지합니다.** 컴퓨팅 환경에 `MinvCpus: 2`를 주면 작은 인스턴스 하나가 계속 돌아 3분의 콜드 스타트가 사라지며, 그 인스턴스의 유휴 시간이 비용입니다.
 

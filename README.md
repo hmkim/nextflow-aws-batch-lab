@@ -19,6 +19,7 @@ The two match almost one to one. A Nextflow process becomes a Batch job; the pro
 | `main.nf` | GreetingsNF, a one-process Nextflow pipeline. Same file the HealthOmics workshop registers as a private workflow. Kept at the repository root so `nextflow run hmkim/nextflow-aws-batch-lab` works. |
 | `cfn/batch-nextflow.yaml` | CloudFormation template: IAM instance role, EC2 launch template, managed compute environment (0 to 16 vCPUs), job queue. Optional Mountpoint for Amazon S3 mode. |
 | `scripts/setup-nextflow-batch.sh` | One-shot, idempotent setup. Installs Java 17 and Nextflow 24.10, deploys the template, writes `nextflow.config`. |
+| `scripts/run-cost.py` | Estimates what a run cost, per process and per instance, from its trace file. |
 | `pipeline/ref-check.nf` | Optional: reads a reference file through a Mountpoint for Amazon S3 mount instead of staging it. |
 | `docs/` | Korean guide and console screenshots. |
 
@@ -416,9 +417,91 @@ In testing Kiro reported the queue and image from the profile, a 195-second wait
 | Data staging | Service-managed shared file system | Nextflow stages per task from S3 with the AWS CLI on the instance |
 | First-task latency measured | About 1 to 2 minutes | 3m 29s cold, 5 s warm |
 | Logs | CloudWatch, grouped per run | One CloudWatch stream per job in `/aws/batch/job`, plus `.command.*` in S3 |
+| Cost per task | Shown on every run: instance type and price per task | Derived: estimate with `run-cost.py` now, or Split Cost Allocation Data in the CUR a day later |
 | What you operate | Nothing between runs | Capacity, AMI updates, head node, work directory lifecycle |
 
 Neither is "better". HealthOmics removes the operational surface and bills per run; Batch exposes every knob and fits when a pipeline needs hardware or software the service does not provide, or when the rest of your platform already runs there. The same `main.nf` targets either one.
+
+## Measuring cost
+
+AWS Batch has no charge of its own. The bill for a run is the EC2 instances in the compute environment (plus their EBS volumes, the S3 work directory and CloudWatch Logs, all small by comparison), and several jobs share each instance. A "cost per job" therefore does not exist on the invoice; it has to be derived by splitting each instance's cost across the jobs that ran on it. There are two ways to do that: an immediate estimate from the run's own records, and the exact figures AWS publishes a day later.
+
+### Right away: `scripts/run-cost.py`
+
+The script reads the run's trace file, asks Batch for each job's resource request, start and stop time, and the instance it ran on, looks up the instance's On-Demand price, and prints two totals:
+
+- **attributed**: what the tasks used. Instance price multiplied by the job's runtime and by the share of the instance's vCPU or memory the job reserved, whichever is larger. This is the same allocation rule AWS Split Cost Allocation Data applies (see below), computed locally.
+- **incurred**: what EC2 actually billed. Each instance the run used, from launch to termination, at its hourly price.
+
+```bash
+uv run --with boto3 scripts/run-cost.py trace-sarek.txt
+```
+
+Output for the sarek test run, trimmed:
+
+```
+Run: trace-sarek.txt   tasks: 23   region: us-east-1
+
+process                                                    tasks   runtime      wait  attributed
+NFCORE_SAREK:SAREK:FASTQ_ALIGN_BWAMEM_MEM2_DRAGMAP_SENTIEO     2       25s       41s $   0.0023
+NFCORE_SAREK:SAREK:MULTIQC                                     1       27s       36s $   0.0020
+NFCORE_SAREK:SAREK:BAM_MARKDUPLICATES:GATK4_MARKDUPLICATES     1       19s       28s $   0.0018
+NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6m23s $   0.0010
+...
+TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
+
+instance             type             $/h  jobs      span   incurred  attributed
+i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
+
+Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.
+```
+
+Six cents for the whole run, and only a fifth of it went to the tasks. The two FASTQC jobs waited six minutes for the first instance, then ran for ten seconds each. That ratio is what a small test pipeline on a scale-to-zero environment looks like; a production run with hours of alignment work packs the instances far better. `MinvCpus` on the compute environment, Spot pricing and larger instance types all move this number, and the script lets you measure the effect of each.
+
+Run the script within about an hour of the pipeline finishing. After that, terminated instances drop out of the EC2 and ECS APIs, and the script falls back to Fargate per-vCPU and per-GB rates as a proxy for the attributed figures, marks those rows with `*`, and cannot compute the incurred side at all. The script needs `batch:DescribeJobs`, `ecs:DescribeContainerInstances`, `ec2:DescribeInstances`, `pricing:GetProducts` and `ssm:GetParameter`.
+
+### Exact figures: cost allocation tags and Split Cost Allocation Data
+
+For real workloads use the billing data itself. The generated `nextflow.config` already tags every Batch job with the run name, session id, pipeline and process name:
+
+```groovy
+process.resourceLabels = { [
+    'nf-run'      : workflow.runName,
+    'nf-session'  : workflow.sessionId.toString(),
+    'nf-pipeline' : (workflow.manifest.name ?: workflow.scriptName),
+    'nf-process'  : task.process
+] }
+```
+
+Nextflow passes these as tags on `SubmitJob` and registers its job definitions with `propagateTags`, so the tags reach the ECS task too. You can see them with `aws batch describe-jobs --jobs <id> --query 'jobs[0].tags'`. (The closure form matters: a plain map is evaluated while the configuration is parsed, before `workflow` exists.) Batch adds `aws:batch:job-queue`, `aws:batch:compute-environment` and `aws:batch:job-definition` tags of its own.
+
+[Split Cost Allocation Data](https://docs.aws.amazon.com/cur/latest/userguide/split-cost-allocation-data.html) then turns those tags into dollars. It adds rows to the Cost and Usage Report for every ECS task, with the instance's cost divided among the tasks by the CPU and memory they reserved, and applies the task's tags to those rows. AWS Batch jobs are ECS tasks, so this covers them ([announcement](https://aws.amazon.com/blogs/aws-cloud-financial-management/la-improve-cost-visibility-of-containerized-applications-with-aws-split-cost-allocation-data-for-ecs-and-batch-jobs/)). Three one-time settings in the Billing and Cost Management console of the payer account, none of them billed:
+
+1. **Cost allocation tags**: activate `nf-run`, `nf-pipeline` and `nf-process` (they appear in the list after the first tagged job has run).
+2. **Cost Management preferences**: under *Split cost allocation data*, opt in for Amazon ECS.
+3. **Data Exports**: create a CUR 2.0 export to S3 and tick *Include split cost allocation data*. Query it with Athena.
+
+Data appears about 24 hours after the usage, and only in the export, not in Cost Explorer. The query for one run, broken down by process:
+
+```sql
+SELECT resource_tags['user_nf_process']        AS process,
+       COUNT(*)                                 AS task_hours,
+       SUM(split_line_item_split_cost)          AS used_usd,
+       SUM(split_line_item_unused_cost)         AS idle_share_usd
+FROM   cur2
+WHERE  resource_tags['user_nf_run'] = 'reverent_williams'
+GROUP  BY 1 ORDER BY 3 DESC;
+```
+
+`split_line_item_split_cost` is the share the task consumed; `split_line_item_unused_cost` is its share of the instance's idle capacity. Summed over a run, the two match the EC2 line items for the instances it used, which is the reconciliation `run-cost.py` approximates. Group by `user_nf_run` instead of `user_nf_process` for cost per run across the month.
+
+This path is not available inside the workshop's sandbox accounts, which have no billing console access; set it up in your own account.
+
+### How HealthOmics does it
+
+HealthOmics bills per task on instances it owns, so every run already exposes task-level cost: the run page in the console lists each task with its instance type and the price, and `aws omics get-run-task` returns the same. Nothing to configure, nothing to wait for. That convenience is part of what the managed service charges for; on Batch you get the raw instances and build the attribution yourself, which is the trade this lab keeps coming back to.
 
 ## Production notes
 
@@ -441,11 +524,7 @@ process {
 
 **Size tasks explicitly.** Give every process `cpus` and `memory` (see the experiment above). Batch packs containers onto hosts by these numbers; an unsized task gets 1 vCPU / 1 GiB and either starves or wastes the instance.
 
-**Tag jobs for cost allocation.** `resourceLabels` become AWS tags on each job, and with cost allocation tags enabled they show up in Cost Explorer:
-
-```groovy
-process.resourceLabels = [ project: 'genomics-lab', owner: 'team-a' ]
-```
+**Tag jobs for cost allocation.** The generated config already tags jobs with run, session, pipeline and process (see Measuring cost). Add your own keys, such as a project or team, to the same map; with cost allocation tags activated they appear in Cost Explorer and the CUR.
 
 **Keep a warm floor when latency matters.** `MinvCpus: 2` on the compute environment keeps one small instance running and removes the three-minute cold start, at the price of that instance's idle time.
 

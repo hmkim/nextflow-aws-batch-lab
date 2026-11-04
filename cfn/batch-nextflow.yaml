@@ -156,13 +156,22 @@ Resources:
               ARCH=$(uname -m)
               MOUNT_BUCKET="${MountBucketName}"
 
+              # On the ECS-optimized AMI the ECS agent starts only after cloud-init finishes, so
+              # this script always completes before the instance can accept a job. If a step fails,
+              # keep the agent from ever starting: the instance never registers with Batch, Batch
+              # replaces it, and no job runs on a host without the CLI. (Do not start or stop the
+              # ecs service from here: it is ordered after cloud-init and a synchronous start
+              # deadlocks the boot.)
+              trap 'echo "[bootstrap] FAILED at line $LINENO; masking ecs so this instance never takes jobs"; systemctl mask ecs' ERR
+
               # 1. Self-contained AWS CLI under /opt/aws-cli. Nextflow bind-mounts this directory
               #    into every task container (aws.batch.cliPath), so task images do not need the
               #    CLI installed. It is a conda environment rather than the AWS CLI v2 installer:
               #    the v2 build links against host libraries (libz, ...) that minimal images such
               #    as biocontainers do not have, while the conda build ships every library it
               #    needs inside /opt/aws-cli. This is the layout the Nextflow docs recommend.
-              curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$ARCH.sh" -o /tmp/miniforge.sh
+              curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+                "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$ARCH.sh" -o /tmp/miniforge.sh
               bash /tmp/miniforge.sh -b -p /opt/aws-cli
               rm -f /tmp/miniforge.sh
               /opt/aws-cli/bin/conda install -y -q -c conda-forge awscli
