@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  AWS Batch environment for running Nextflow pipelines (HealthOmics workshop, Nextflow on
+  AWS Batch lab). Creates an ECS instance role, a launch template that installs a
+  self-contained AWS CLI (used by Nextflow tasks to stage data to and from S3), a managed
+  EC2 compute environment that scales from 0, and a job queue. Optionally mounts a data
+  bucket on every compute instance with Mountpoint for Amazon S3.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the compute environment (the default VPC works).
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for compute instances. Public subnets with auto-assign public IP, or private subnets with a NAT gateway.
+  WorkBucket:
+    Type: String
+    Description: S3 bucket Nextflow uses as its work directory. Compute instances get read/write access.
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  DataBucket:
+    Type: String
+    Default: ''
+    Description: Optional second bucket with input or reference data. Compute instances get read access.
+  MountDataBucket:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Mount DataBucket read-only at /mnt/s3-ref on every compute instance with Mountpoint for Amazon S3.
+  MaxvCpus:
+    Type: Number
+    Default: 16
+    MinValue: 2
+    MaxValue: 256
+    Description: Upper limit of vCPUs the compute environment may scale to.
+  InstanceTypes:
+    Type: CommaDelimitedList
+    Default: optimal
+    Description: Instance types or families for the compute environment. "optimal" lets AWS Batch choose from the C, M and R families.
+
+Conditions:
+  HasDataBucket: !Not [!Equals [!Ref DataBucket, '']]
+  MountData: !And
+    - !Condition HasDataBucket
+    - !Equals [!Ref MountDataBucket, 'true']
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # IAM: the role every compute instance (and therefore every Nextflow task) runs as
+  # ---------------------------------------------------------------------------
+  EcsInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Instance role for AWS Batch compute instances running Nextflow tasks
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: NextflowS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ListBuckets
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource: !If
+                  - HasDataBucket
+                  - - !Sub 'arn:aws:s3:::${WorkBucket}'
+                    - !Sub 'arn:aws:s3:::${DataBucket}'
+                  - - !Sub 'arn:aws:s3:::${WorkBucket}'
+              - Sid: WorkBucketReadWrite
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
+                Resource: !Sub 'arn:aws:s3:::${WorkBucket}/*'
+              - !If
+                - HasDataBucket
+                - Sid: DataBucketRead
+                  Effect: Allow
+                  Action:
+                    - s3:GetObject
+                  Resource: !Sub 'arn:aws:s3:::${DataBucket}/*'
+                - !Ref AWS::NoValue
+
+  EcsInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EcsInstanceRole
+
+  # ---------------------------------------------------------------------------
+  # Network: compute instances only need outbound access (ECR, S3, Batch, CloudWatch)
+  # ---------------------------------------------------------------------------
+  ComputeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Batch compute instances for Nextflow (outbound only)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-compute'
+
+  # ---------------------------------------------------------------------------
+  # Launch template: installs the AWS CLI on the host so Nextflow can stage files
+  # from any container image, and (optionally) mounts the data bucket with Mountpoint.
+  # ---------------------------------------------------------------------------
+  ComputeLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub '${AWS::StackName}-compute'
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 100
+              VolumeType: gp3
+              DeleteOnTermination: true
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 2
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub '${AWS::StackName}-compute'
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              MIME-Version: 1.0
+              Content-Type: multipart/mixed; boundary="==BOUNDARY=="
+
+              --==BOUNDARY==
+              Content-Type: text/x-shellscript; charset="us-ascii"
+
+              #!/bin/bash
+              set -euo pipefail
+              exec >> /var/log/nextflow-bootstrap.log 2>&1
+              echo "[bootstrap] start $(date -Is)"
+
+              ARCH=$(uname -m)
+              MOUNT_BUCKET="${MountBucketName}"
+
+              # 1. Self-contained AWS CLI v2 under /opt/aws-cli. Nextflow bind-mounts this
+              #    directory into every task container (aws.batch.cliPath), so task images
+              #    do not need the CLI installed.
+              dnf install -y -q unzip
+              curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$ARCH.zip" -o /tmp/awscliv2.zip
+              unzip -q -o /tmp/awscliv2.zip -d /tmp
+              /tmp/aws/install --install-dir /opt/aws-cli --bin-dir /opt/aws-cli/bin --update
+              rm -rf /tmp/aws /tmp/awscliv2.zip
+              /opt/aws-cli/bin/aws --version
+
+              # 2. Optional: Mountpoint for Amazon S3 presents the data bucket as a read-only
+              #    directory, so large reference files stream from S3 instead of being staged.
+              if [ -n "$MOUNT_BUCKET" ]; then
+                curl -fsSL "https://s3.amazonaws.com/mountpoint-s3-release/latest/$ARCH/mount-s3.rpm" -o /tmp/mount-s3.rpm
+                dnf install -y -q /tmp/mount-s3.rpm
+                rm -f /tmp/mount-s3.rpm
+                grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null || echo user_allow_other >> /etc/fuse.conf
+                mkdir -p /mnt/s3-ref
+                mount-s3 "$MOUNT_BUCKET" /mnt/s3-ref --read-only --allow-other
+                echo "[bootstrap] mounted s3://$MOUNT_BUCKET at /mnt/s3-ref"
+              fi
+
+              echo "[bootstrap] done $(date -Is)"
+
+              --==BOUNDARY==--
+            - MountBucketName: !If [MountData, !Ref DataBucket, '']
+
+  # ---------------------------------------------------------------------------
+  # AWS Batch: managed EC2 compute environment (scales from 0) and job queue
+  # ---------------------------------------------------------------------------
+  ComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      # A launch template change replaces the compute environment, and CloudFormation
+      # cannot replace a resource whose name stays the same. Including the template version
+      # in the name keeps it readable while allowing replacement. The job queue keeps its name.
+      ComputeEnvironmentName: !Sub
+        - '${AWS::StackName}-ce-lt${Version}'
+        - Version: !GetAtt ComputeLaunchTemplate.LatestVersionNumber
+      Type: MANAGED
+      State: ENABLED
+      UpdatePolicy:
+        TerminateJobsOnUpdate: false
+        JobExecutionTimeoutMinutes: 30
+      ComputeResources:
+        Type: EC2
+        AllocationStrategy: BEST_FIT_PROGRESSIVE
+        MinvCpus: 0
+        DesiredvCpus: 0
+        MaxvCpus: !Ref MaxvCpus
+        InstanceTypes: !Ref InstanceTypes
+        InstanceRole: !GetAtt EcsInstanceProfile.Arn
+        Subnets: !Ref SubnetIds
+        SecurityGroupIds:
+          - !Ref ComputeSecurityGroup
+        LaunchTemplate:
+          LaunchTemplateId: !Ref ComputeLaunchTemplate
+          Version: !GetAtt ComputeLaunchTemplate.LatestVersionNumber
+        Ec2Configuration:
+          - ImageType: ECS_AL2023
+        UpdateToLatestImageVersion: true
+        Tags:
+          Name: !Sub '${AWS::StackName}-compute'
+          Project: nextflow-batch-lab
+
+  JobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: !Sub '${AWS::StackName}-queue'
+      State: ENABLED
+      Priority: 1
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref ComputeEnvironment
+
+Outputs:
+  JobQueueName:
+    Description: Job queue to reference from nextflow.config (process.queue)
+    Value: !Sub '${AWS::StackName}-queue'
+  ComputeEnvironmentArn:
+    Description: Compute environment ARN
+    Value: !Ref ComputeEnvironment
+  InstanceRoleArn:
+    Description: IAM role compute instances and Nextflow tasks run as
+    Value: !GetAtt EcsInstanceRole.Arn
+  LaunchTemplateId:
+    Description: Launch template that installs the AWS CLI (and Mountpoint) on compute instances
+    Value: !Ref ComputeLaunchTemplate
+  AwsCliPath:
+    Description: Path of the AWS CLI on compute instances (aws.batch.cliPath)
+    Value: /opt/aws-cli/bin/aws
+  MountPath:
+    Description: Where DataBucket is mounted on compute instances (empty when not mounted)
+    Value: !If [MountData, /mnt/s3-ref, '']
