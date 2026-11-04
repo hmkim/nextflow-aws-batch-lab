@@ -36,7 +36,13 @@ flowchart LR
     IDE <-->|.command.* 파일, 결과| S3
 ```
 
-헤드 노드를 어디서 띄우는지는 생각보다 중요합니다. 노트북에서도 되지만 Nextflow 프로세스가 실행 내내 살아 있고 네트워크가 유지돼야 합니다. 이 랩처럼 EC2 인스턴스나 클라우드 IDE에서 실행하면 몇 시간짜리 파이프라인을 돌리는 동안 노트북을 닫아도 됩니다. 무인 운영 실행은 `tmux`나 `nohup`으로 감싸거나 Seqera Platform 같은 런처를 사용합니다.
+헤드 노드를 어디서 띄우는지는 생각보다 중요합니다. 노트북에서도 되지만 Nextflow 프로세스가 실행 내내 살아 있고 네트워크가 유지돼야 합니다. 이 랩처럼 EC2 인스턴스나 클라우드 IDE에서 실행하면 몇 시간짜리 파이프라인을 돌리는 동안 노트북을 닫아도 됩니다. 긴 실행을 터미널에서 떼어 놓을 때는 `nohup ... &` 대신 Nextflow 자체의 백그라운드 플래그를 씁니다(Nextflow가 터미널을 읽기 때문에 단순 `&` 작업은 정지됩니다):
+
+```bash
+nextflow -bg run main.nf -profile batch --addressee 'detached' -ansi-log false > run.log 2>&1
+```
+
+무인 운영 실행은 `tmux`나 Seqera Platform 같은 런처를 사용합니다.
 
 ## 사전 요구 사항
 
@@ -233,7 +239,7 @@ sudo chown "$(id -u):$(id -g)" /mnt/workflow/pubdir
 | 리소스 | 역할 |
 |---|---|
 | IAM 역할과 인스턴스 프로파일 | 컴퓨팅 인스턴스가 이 역할로 실행됩니다. ECS 에이전트 정책과 작업 버킷 읽기/쓰기 권한이 있어 태스크가 별도 자격 증명 없이 파일을 스테이징합니다. |
-| 시작 템플릿 | user data가 `/opt/aws-cli` 아래에 독립 실행형 AWS CLI를 설치합니다. Nextflow는 `cliPath`의 *조부모* 디렉터리를 모든 태스크 컨테이너에 같은 경로로 마운트하므로, `/opt/aws-cli/bin/aws`는 `/opt/aws-cli`만 마운트합니다. 이 경로를 유지하세요. `/usr/local/bin/aws` 같은 경로를 쓰면 컨테이너의 `/usr/local` 전체가 가려집니다. |
+| 시작 템플릿 | user data가 `/opt/aws-cli` 아래에 독립 실행형 AWS CLI를 설치합니다. AWS CLI v2 설치 프로그램이 아니라 conda 환경(Miniforge + `awscli` 패키지)입니다. v2 빌드는 `libz` 같은 호스트 라이브러리에 의존해 biocontainers처럼 최소화된 이미지에서는 실행되지 않지만, conda 빌드는 필요한 라이브러리를 모두 `/opt/aws-cli` 안에 가지고 있습니다. Nextflow는 `cliPath`의 *조부모* 디렉터리를 모든 태스크 컨테이너에 같은 경로로 마운트하므로, `/opt/aws-cli/bin/aws`는 `/opt/aws-cli`만 마운트합니다. 이 경로를 유지하세요. `/usr/local/bin/aws` 같은 경로를 쓰면 컨테이너의 `/usr/local` 전체가 가려집니다. |
 | 컴퓨팅 환경 | 관리형, EC2, `optimal` 인스턴스 유형, 0~16 vCPU. 작업이 들어오면 Batch가 인스턴스를 시작하고 몇 분간 유휴 상태면 종료합니다. |
 | 작업 큐 | `nextflow-batch-queue`. Nextflow 프로필이 작업을 제출하는 이름입니다. |
 
@@ -479,9 +485,81 @@ nextflow run pipeline/ref-check.nf -profile batch
 
 같은 디렉터리를 `path` 입력으로 넘기면 헤드 노드가 컴퓨팅 인스턴스에만 보이는 파일을 스테이징하려 해서 `Can't stage file /mnt/s3-ref/... -- file does not exist` 오류가 납니다. 블로그 글이 지적하는 내용이며, 이 랩에서는 의도적으로 재현합니다.
 
-## 다음 단계
+## 선택: 실제 nf-core 파이프라인 실행
 
-프로세스 하나짜리 파이프라인은 동작 원리는 보여 주지만 스케줄링은 보여 주지 못합니다. 자연스러운 두 번째 파이프라인은 FastQC 뒤에 MultiQC를 붙이는 것입니다. FastQC는 FASTQ 파일마다 병렬로 실행되고(각각 Batch 작업 하나, 여러 인스턴스에 흩어질 수 있음), MultiQC는 `.collect()` 채널로 그 전부를 기다립니다. 프로세스 2개, 컨테이너 이미지 2개(`quay.io/biocontainers/fastqc`, `quay.io/biocontainers/multiqc`), 따라서 작업 정의 2개이고, Batch 콘솔에서 팬아웃과 팬인이 또렷하게 보입니다. HealthOmics 워크숍을 거쳐 왔다면 거기서 만든 ECR pull-through 캐시가 `<account>.dkr.ecr.<region>.amazonaws.com/quay/biocontainers/...` 경로로 이 이미지들을 제공해 레지스트리 속도 제한을 피해 줍니다. 프로세스의 `container` 지시어와 이 랩의 `batch` 프로필을 그대로 두면 Batch 쪽은 아무것도 달라지지 않습니다.
+GreetingsNF는 동작 원리는 보여 주지만 스케줄링은 보여 주지 못합니다. [nf-core](https://nf-co.re/) 커뮤니티 파이프라인은 보여 줍니다. 수십 개의 프로세스, 여러 컨테이너 이미지, 샘플 단위 팬아웃과 리포트 단계의 팬인이 있습니다. 모든 nf-core 파이프라인에는 작은 공개 데이터셋을 가리키고 자원을 제한하는(태스크당 4 CPU, 15 GB, 1시간) `test` 프로필이 들어 있어, 이미 만든 컴퓨팅 환경에서 그대로 돌아갑니다. Batch 쪽은 아무것도 바꾸지 않습니다. 프로필 목록에 `test`를 추가하고 출력 위치만 지정합니다.
+
+두 파이프라인을 권합니다. [nf-core/rnaseq](https://nf-co.re/rnaseq)는 bulk RNA-seq 정량(트리밍, STAR 또는 Salmon 정렬, 카운팅, QC)이고, [nf-core/sarek](https://nf-co.re/sarek)은 생식세포·체세포 변이 호출로 HealthOmics 워크숍의 GATK 모듈과 같은 부류의 워크플로입니다. 이 랩의 16 vCPU 컴퓨팅 환경에서 sarek 테스트는 약 15분(태스크 23개), rnaseq 테스트는 18분(태스크 209개, 샘플 5개)이 걸렸고 대부분 인스턴스 시작과 컨테이너 가져오기 시간이었습니다. 하나를 시작해 두고 이 페이지의 나머지를 읽으면 됩니다.
+
+이 랩은 Nextflow 24.10.5를 고정합니다. 현재 nf-core 릴리스는 Nextflow 25.10 이상을 요구하므로, 아래 명령은 24.10에서 돌아가는 마지막 릴리스인 rnaseq `3.19.0`과 sarek `3.5.1`을 고정합니다. 최신 릴리스를 실행하는 방법은 끝의 메모에 있습니다.
+
+### rnaseq
+
+```bash
+export WORK_BUCKET=$(aws s3api list-buckets \
+  --query "Buckets[?starts_with(Name, 'omics-output-')].Name | [0]" --output text)
+
+nextflow run nf-core/rnaseq -r 3.19.0 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/rnaseq-test \
+  -with-trace trace-rnaseq.txt
+```
+
+Nextflow가 파이프라인을 `~/.nextflow/assets/`에 클론하고 파라미터 요약을 출력한 뒤 제출을 시작합니다. Batch 콘솔은 nf-core 모듈 이름을 딴 작업들(`NFCORE_RNASEQ:RNASEQ:FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS:...:FASTQC`, `...:ALIGN_STAR:STAR_ALIGN`, `...:MULTIQC`)로 채워집니다. 테스트 샘플시트에 샘플이 5개라 동시에 여러 작업이 돌아가며, **Environments**에서 컴퓨팅 환경이 16 vCPU 상한까지(테스트 당시 `xlarge` 인스턴스 4대) 커졌다가 끝난 뒤 0으로 돌아가는 것을 볼 수 있습니다.
+
+출력은 `s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/`에 놓이며 `multiqc/star_salmon/multiqc_report.html`이 포함됩니다. 내려받아 브라우저에서 엽니다:
+
+```bash
+aws s3 cp s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/multiqc/star_salmon/multiqc_report.html .
+```
+
+### sarek
+
+```bash
+nextflow run nf-core/sarek -r 3.5.1 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/sarek-test \
+  -with-trace trace-sarek.txt
+```
+
+테스트 프로필은 작은 참조 유전체로 단일 샘플 생식세포 워크플로를 실행합니다. BWA 인덱스와 정렬, 중복 표시, 염기 품질 재보정, Strelka 변이 호출입니다. VCF는 `sarek-test/variant_calling/strelka/test/` 아래에, 리포트는 `sarek-test/multiqc/multiqc_report.html`에 놓입니다. HealthOmics 워크숍의 GATK 실행과 태스크 목록을 비교해 보세요. 단계는 같은 계열이고 엔진만 다릅니다.
+
+### 끝난 뒤 볼 것
+
+트레이스 파일에서 실제 파이프라인이 흥미로워집니다. `duration`은 제출부터 완료까지, `realtime`은 스크립트 자체가 실행된 시간이므로 둘의 차이가 큐 대기와 컨테이너 가져오기 시간입니다:
+
+```bash
+awk -F'\t' 'NR>1 {print $8"\t"$9"\t"$4}' trace-rnaseq.txt | column -t -s$'\t' | less -S
+```
+
+대부분의 태스크는 몇 초 동안 실행됐지만 끝까지는 1분 안팎이 걸렸습니다. 새 인스턴스의 첫 태스크가 인스턴스 시작과 이미지 가져오기 비용을 냈고, 인스턴스가 비어 있을 때 제출된 태스크는 몇 초 만에 시작했습니다. 프로세스 수를 세어 팬아웃을 확인합니다. `SALMON_QUANT`, `STRINGTIE`, `FEATURECOUNTS`가 샘플마다 한 번씩 다섯 번 실행됐습니다.
+
+```bash
+awk -F'\t' 'NR>1 {print $4}' trace-rnaseq.txt | sed 's/ (.*//' | sort | uniq -c | sort -rn | head
+```
+
+`aws batch describe-job-definitions --status ACTIVE`에는 이제 두 파이프라인이 사용한 컨테이너 이미지마다 작업 정의가 하나씩(두 테스트 실행 뒤 38개), 처음 사용될 때 만들어진 채로 나열됩니다. 앞에서 설명한 그대로입니다. 실행이 중간에 실패하면 같은 명령에 `-resume`을 붙이세요. S3 작업 디렉터리에 출력이 이미 있는 태스크는 Nextflow가 건너뜁니다.
+
+### 최신 nf-core 릴리스 실행
+
+현재 nf-core 릴리스는 이 랩이 설치하는 24.10.5보다 새로운 Nextflow를 요구합니다. Nextflow의 표준 런처는 `NXF_VER` 변수로 어떤 버전이든 즉시 받아 실행할 수 있으므로, 고정 바이너리를 바꾸지 말고 옆에 설치합니다:
+
+```bash
+curl -s https://get.nextflow.io -o ~/.local/bin/nextflow-launcher
+chmod +x ~/.local/bin/nextflow-launcher
+
+NXF_VER=25.10.4 nextflow-launcher run nf-core/rnaseq -r 3.27.0 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/rnaseq-test-latest
+```
+
+첫 호출에서 해당 Nextflow 버전을 `~/.nextflow/`에 내려받습니다. `nextflow.config`와 Batch 환경은 공유되므로 그 밖에는 바뀌는 것이 없습니다. GreetingsNF용으로 고정된 `nextflow`는 그대로 두세요. 그 `main.nf`는 새 엄격 파서가 거부하는 문법을 씁니다.
+
+### 테스트 출력 정리
+
+```bash
+aws s3 rm --recursive s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/
+aws s3 rm --recursive s3://$WORK_BUCKET/nextflow-batch/sarek-test/
+```
+
+`nextflow-batch/work/` 아래 작업 디렉터리는 아래 정리 단계에서 함께 삭제됩니다.
 
 ## 정리
 
@@ -503,6 +581,7 @@ aws cloudformation wait stack-delete-complete --stack-name nextflow-batch
 | `Process <task> terminated for an unknown reason -- Likely it has been terminated by the external system` | Batch가 런처를 실행하지 못했습니다. 보통 셸이 아닌 비표준 `ENTRYPOINT`를 가진 컨테이너 이미지이거나, 인스턴스의 AWS CLI가 실행되지 않는 경우입니다. 작업의 **Logging** 탭과 CloudWatch의 `/aws/batch/job`을 확인합니다. |
 | `CloudFormation cannot update a stack when a custom-named resource requires replacing` | 이전 템플릿 버전에서 시작 템플릿을 바꾼 경우. 현재 템플릿은 컴퓨팅 환경 이름에 시작 템플릿 버전을 넣어 교체가 가능합니다. |
 | 태스크가 `aws: command not found`로 실패 | `aws.batch.cliPath`가 시작 템플릿이 CLI를 설치한 경로(`/opt/aws-cli/bin/aws`)와 다릅니다. |
+| 태스크가 종료 코드 127, `/opt/aws-cli/bin/aws: error while loading shared libraries: libz.so.1` | 인스턴스의 CLI가 AWS CLI v2 설치 프로그램 빌드라서 태스크 이미지에 없는 호스트 라이브러리를 필요로 합니다. 자체 라이브러리를 포함한 conda 기반 CLI를 설치하는 현재 템플릿을 배포하세요. GreetingsNF의 `ubuntu` 이미지는 이 문제를 감추고, biocontainers 이미지는 드러냅니다. |
 | `Can't stage file /mnt/s3-ref/...` | 마운트 디렉터리를 `path`로 넘긴 경우. `val`로 넘깁니다. |
 
 확인 순서: 헤드 노드의 `.nextflow.log`, Batch 콘솔의 작업 상세 페이지, CloudWatch의 `/aws/batch/job` 로그 그룹.

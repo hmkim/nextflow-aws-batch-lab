@@ -36,7 +36,13 @@ flowchart LR
     IDE <-->|.command.* files, results| S3
 ```
 
-Where you run the head node matters more than it looks. A laptop works, but the Nextflow process must stay alive for the whole run and keep its network connection. Running it on an EC2 instance or a cloud IDE, as this lab does, lets you close your laptop while a multi-hour pipeline continues. For unattended production runs, wrap it in `tmux` or `nohup`, or use a launcher such as Seqera Platform.
+Where you run the head node matters more than it looks. A laptop works, but the Nextflow process must stay alive for the whole run and keep its network connection. Running it on an EC2 instance or a cloud IDE, as this lab does, lets you close your laptop while a multi-hour pipeline continues. To detach a long run from the terminal, use Nextflow's own background flag rather than `nohup ... &` (Nextflow reads the terminal and a plain `&` job gets stopped):
+
+```bash
+nextflow -bg run main.nf -profile batch --addressee 'detached' -ansi-log false > run.log 2>&1
+```
+
+For unattended production runs, use `tmux` or a launcher such as Seqera Platform.
 
 ## Prerequisites
 
@@ -233,7 +239,7 @@ sudo chown "$(id -u):$(id -g)" /mnt/workflow/pubdir
 | Resource | Purpose |
 |---|---|
 | IAM role and instance profile | Compute instances run as this role: ECS agent policy plus read/write on the work bucket, so tasks stage files without extra credentials. |
-| Launch template | User data installs a self-contained AWS CLI under `/opt/aws-cli`. Nextflow mounts the *grandparent* directory of `cliPath` into every task container at the same path, so `/opt/aws-cli/bin/aws` mounts `/opt/aws-cli` and nothing else. Keep it that way: a path such as `/usr/local/bin/aws` would shadow the container's whole `/usr/local`. |
+| Launch template | User data installs a self-contained AWS CLI under `/opt/aws-cli`. It is a conda environment (Miniforge plus the `awscli` package), not the AWS CLI v2 installer: the v2 build depends on host libraries such as `libz` that minimal images (biocontainers, for example) do not ship, while the conda build carries every library it needs inside `/opt/aws-cli`. Nextflow mounts the *grandparent* directory of `cliPath` into every task container at the same path, so `/opt/aws-cli/bin/aws` mounts `/opt/aws-cli` and nothing else. Keep it that way: a path such as `/usr/local/bin/aws` would shadow the container's whole `/usr/local`. |
 | Compute environment | Managed, EC2, `optimal` instance types, 0 to 16 vCPUs. Batch launches instances when jobs arrive and terminates them after a few idle minutes. |
 | Job queue | `nextflow-batch-queue`, the name the Nextflow profile submits to. |
 
@@ -479,9 +485,81 @@ nextflow run pipeline/ref-check.nf -profile batch
 
 Passing the same directory as a `path` input fails with `Can't stage file /mnt/s3-ref/... -- file does not exist`, because the head node tries to stage a file only the compute instances can see. The post calls this out; the lab reproduces it on purpose.
 
-## Next steps
+## Optional: run a real nf-core pipeline
 
-A one-process pipeline shows the mechanics but not the scheduling. A natural second pipeline is FastQC followed by MultiQC: FastQC runs once per FASTQ file in parallel (one Batch job each, possibly on several instances), and MultiQC waits for all of them through a `.collect()` channel. Two processes, two container images (`quay.io/biocontainers/fastqc` and `quay.io/biocontainers/multiqc`), so two job definitions, and the Batch console shows fan-out and fan-in clearly. If you came from the HealthOmics workshop, the ECR pull-through cache created there serves those images through `<account>.dkr.ecr.<region>.amazonaws.com/quay/biocontainers/...` and avoids registry rate limits. Keep the `container` directives on the processes and the `batch` profile from this lab; everything else about the Batch side stays the same.
+GreetingsNF shows the mechanics but not the scheduling. The [nf-core](https://nf-co.re/) community pipelines do: dozens of processes, several container images, fan-out over samples and fan-in for reports. Every nf-core pipeline ships a `test` profile that points at a tiny public dataset and caps resources (4 CPUs, 15 GB, 1 hour per task), so it runs on the compute environment you already have. Nothing about the Batch side changes; you add `test` to the profile list and give an output location.
+
+Two pipelines are worth trying. [nf-core/rnaseq](https://nf-co.re/rnaseq) is bulk RNA-seq quantification (trimming, STAR or Salmon alignment, counting, QC). [nf-core/sarek](https://nf-co.re/sarek) is germline and somatic variant calling, the same class of workflow the HealthOmics GATK module runs. On the 16-vCPU compute environment from this lab, the sarek test took about 15 minutes (23 tasks) and the rnaseq test 18 minutes (209 tasks, 5 samples), most of it in instance start-up and container pulls. Start one and read the rest of this page while it runs.
+
+The lab pins Nextflow 24.10.5. The current nf-core releases require Nextflow 25.10 or later, so the commands below pin the last releases that run on 24.10: rnaseq `3.19.0` and sarek `3.5.1`. The note at the end shows how to run the latest releases.
+
+### rnaseq
+
+```bash
+export WORK_BUCKET=$(aws s3api list-buckets \
+  --query "Buckets[?starts_with(Name, 'omics-output-')].Name | [0]" --output text)
+
+nextflow run nf-core/rnaseq -r 3.19.0 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/rnaseq-test \
+  -with-trace trace-rnaseq.txt
+```
+
+Nextflow clones the pipeline into `~/.nextflow/assets/`, prints the parameter summary, and starts submitting. The Batch console fills up with jobs named after nf-core modules (`NFCORE_RNASEQ:RNASEQ:FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS:...:FASTQC`, `...:ALIGN_STAR:STAR_ALIGN`, `...:MULTIQC`). Several run at once because the test samplesheet has five samples; watch **Environments** to see the compute environment climb to its 16-vCPU ceiling (four `xlarge` instances when this was tested) and shrink back to zero afterwards.
+
+The outputs land in `s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/`, including `multiqc/star_salmon/multiqc_report.html`. Download it and open it in a browser:
+
+```bash
+aws s3 cp s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/multiqc/star_salmon/multiqc_report.html .
+```
+
+### sarek
+
+```bash
+nextflow run nf-core/sarek -r 3.5.1 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/sarek-test \
+  -with-trace trace-sarek.txt
+```
+
+The test profile runs a single-sample germline workflow on a small reference: BWA index and alignment, duplicate marking, base recalibration, and variant calling with Strelka. The VCFs land under `sarek-test/variant_calling/strelka/test/` and the report under `sarek-test/multiqc/multiqc_report.html`. Compare its task list with the GATK run from the HealthOmics workshop; the steps are the same family, the engine is different.
+
+### What to look at afterwards
+
+The trace file is where a real pipeline becomes interesting. `duration` is the time from submission to completion, `realtime` the time the script itself ran, so the gap between them is queueing plus container pull:
+
+```bash
+awk -F'\t' 'NR>1 {print $8"\t"$9"\t"$4}' trace-rnaseq.txt | column -t -s$'\t' | less -S
+```
+
+Most tasks ran for a few seconds but took around a minute end to end; the first task on each new instance paid for the instance launch and the image pull, and tasks submitted while an instance was free started in seconds. Count the processes to see the fan-out: `SALMON_QUANT`, `STRINGTIE` and `FEATURECOUNTS` each ran five times, once per sample.
+
+```bash
+awk -F'\t' 'NR>1 {print $4}' trace-rnaseq.txt | sed 's/ (.*//' | sort | uniq -c | sort -rn | head
+```
+
+`aws batch describe-job-definitions --status ACTIVE` now lists one definition per container image the two pipelines used (38 after both test runs), created on first use, exactly as described above. If a run fails part way, add `-resume` to the same command and Nextflow skips every task whose outputs are already in the S3 work directory.
+
+### Running the latest nf-core releases
+
+Current nf-core releases need a newer Nextflow than the 24.10.5 this lab installs. Nextflow's standard launcher can run any version on demand through the `NXF_VER` variable, so install it alongside the pinned binary rather than replacing it:
+
+```bash
+curl -s https://get.nextflow.io -o ~/.local/bin/nextflow-launcher
+chmod +x ~/.local/bin/nextflow-launcher
+
+NXF_VER=25.10.4 nextflow-launcher run nf-core/rnaseq -r 3.27.0 -profile test,batch \
+  --outdir s3://$WORK_BUCKET/nextflow-batch/rnaseq-test-latest
+```
+
+The first call downloads that Nextflow version into `~/.nextflow/`. `nextflow.config` and the Batch environment are shared, so nothing else changes. Leave the pinned `nextflow` in place for GreetingsNF; its `main.nf` uses syntax the newer strict parser rejects.
+
+### Clean up the test outputs
+
+```bash
+aws s3 rm --recursive s3://$WORK_BUCKET/nextflow-batch/rnaseq-test/
+aws s3 rm --recursive s3://$WORK_BUCKET/nextflow-batch/sarek-test/
+```
+
+The work directory under `nextflow-batch/work/` is removed by the main cleanup step below.
 
 ## Clean up
 
@@ -503,6 +581,7 @@ Deleting the compute environment terminates any remaining instance, so the wait 
 | `Process <task> terminated for an unknown reason -- Likely it has been terminated by the external system` | Batch could not run the launcher. Usually a container image with a non-standard `ENTRYPOINT` that is not a shell, or the AWS CLI on the instance not executing. Check the job's **Logging** tab and `/aws/batch/job` in CloudWatch. |
 | `CloudFormation cannot update a stack when a custom-named resource requires replacing` | You changed the launch template on an older template version. The current template names the compute environment with the launch-template version so it can be replaced. |
 | Task fails with `aws: command not found` | `aws.batch.cliPath` does not match where the launch template installed the CLI (`/opt/aws-cli/bin/aws`). |
+| Task exits 127 with `/opt/aws-cli/bin/aws: error while loading shared libraries: libz.so.1` | The CLI on the instance is the AWS CLI v2 installer build, which needs host libraries the task image lacks. Deploy the current template, which installs a conda-based CLI with its own libraries; the GreetingsNF `ubuntu` image hides this problem, biocontainers images expose it. |
 | `Can't stage file /mnt/s3-ref/...` | Mounted directory passed as `path`; pass it as `val`. |
 
 Where to look, in order: `.nextflow.log` on the head node, the job's detail page in the Batch console, and the `/aws/batch/job` log group in CloudWatch.
