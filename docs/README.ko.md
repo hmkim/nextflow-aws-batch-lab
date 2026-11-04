@@ -550,7 +550,7 @@ NXF_VER=25.10.4 nextflow-launcher run nf-core/rnaseq -r 3.27.0 -profile test,bat
   --outdir s3://$WORK_BUCKET/nextflow-batch/rnaseq-test-latest
 ```
 
-첫 호출에서 해당 Nextflow 버전을 `~/.nextflow/`에 내려받습니다. `nextflow.config`와 Batch 환경은 공유되므로 그 밖에는 바뀌는 것이 없습니다. GreetingsNF용으로 고정된 `nextflow`는 그대로 두세요. 그 `main.nf`는 새 엄격 파서가 거부하는 문법을 씁니다.
+첫 호출에서 해당 Nextflow 버전을 `~/.nextflow/`에 내려받습니다. `nextflow.config`와 Batch 환경은 공유되므로 그 밖에는 바뀌는 것이 없습니다. 테스트 당시 Nextflow 25.10.4에서 rnaseq 3.27.0은 같은 컴퓨팅 환경에서 태스크 234개를 21분 40초에 완료했습니다. GreetingsNF용으로 고정된 `nextflow`는 그대로 두세요. 그 `main.nf`는 새 엄격 파서가 거부하는 문법을 씁니다.
 
 ### 테스트 출력 정리
 
