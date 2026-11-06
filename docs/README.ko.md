@@ -499,6 +499,22 @@ GROUP  BY 1 ORDER BY 3 DESC;
 
 이 경로는 결제 콘솔 접근이 없는 워크숍 샌드박스 계정에서는 쓸 수 없습니다. 자기 계정에서 설정하세요.
 
+### 추정치를 실제 청구와 대조하기
+
+두 경로를 같은 파이프라인, nf-core/sarek `test`(태스크 23개, 실행 이름 `cranky_ride`)에 대해 split cost allocation data가 켜진 계정에서 실행했습니다. `run-cost.py`는 파이프라인 종료 몇 분 뒤에 돌렸고, split 데이터가 포함된 CUR 2.0 내보내기는 약 28시간 뒤에 도착했습니다.
+
+| | `run-cost.py` (즉시) | Cost and Usage Report (다음 날) |
+|---|---|---|
+| 태스크가 쓴 몫 (attributed / `split_line_item_split_cost`) | $0.0112 | $0.0090 |
+| 유휴 몫 (`split_line_item_unused_cost`) | 분리 안 됨 | $0.0619 |
+| 인스턴스 청구액 (incurred / EC2 `BoxUsage` 항목) | $0.0653 | $0.0709 |
+| 사용 + 유휴 vs EC2 항목 | | $0.0709 vs $0.0709 |
+| 사용률 | 17% | 13% |
+
+세 가지가 눈에 띕니다. CUR의 split + unused 합은 인스턴스 5대의 EC2 항목과 소수점 다섯째 자리까지 맞습니다. 청구 데이터가 보장하고 추정치는 할 수 없는 부분입니다. 스크립트의 incurred는 8% 낮게 나왔는데, 스크립트를 호출한 시점에 마지막 인스턴스가 아직 돌고 있었고 Batch가 각 인스턴스를 마지막 작업 뒤 몇 분 더 살려 두기 때문입니다. 스크립트 출력의 `+` 표시가 바로 이 경우를 가리킵니다. attributed는 25% 높게 나왔는데, 스크립트는 CPU와 메모리를 인스턴스의 시간당 혼합 단가로 계산하지만 split cost allocation data는 vCPU-시간과 GB-시간을 Fargate 가격에서 유도한 9:1 가중치로 따로 계산해서, 1 vCPU / 1 GiB 태스크가 CUR에서 더 싸게 나옵니다. 프로세스 순위는 두 쪽이 같고, 이 실행에 대해 말하는 바도 같습니다. 돈의 대부분은 계산이 아니라 대기에 쓰였습니다.
+
+실제로 해 보며 얻은 메모 두 가지. `nf-*` 태그 키는 태그 붙은 첫 사용량이 처리된 뒤(실행 약 하루 뒤)에야 Billing 콘솔에 나타나서, 실행 당일의 `update-cost-allocation-tags-status`는 `Tag keys not found`로 실패했고 다음 날 성공했습니다. 태그를 활성화한 뒤 `start-cost-allocation-tag-backfill`을 실행하면 그 달의 이전 사용량에도 적용됩니다. 백필이 끝나기 전에도 Batch가 붙이는 `aws:batch:job-queue`, `aws:batch:job-definition`, `aws:batch:compute-environment` 태그는 태스크 행에 이미 있어서 한 큐의 작업을 가려내기에 충분하며, 위 표도 그렇게 만들었습니다.
+
 ### HealthOmics는 어떻게 하나
 
 HealthOmics는 서비스가 소유한 인스턴스에서 태스크 단위로 과금하므로 모든 실행이 태스크 수준 비용을 이미 보여 줍니다. 콘솔의 실행 페이지가 태스크마다 인스턴스 유형과 가격을 나열하고, `aws omics get-run-task`가 같은 값을 반환합니다. 설정할 것도, 기다릴 것도 없습니다. 그 편의가 관리형 서비스가 받는 요금의 일부이고, Batch에서는 인스턴스를 그대로 받아 귀속 계산을 직접 만듭니다. 이 랩이 계속 돌아오는 맞바꿈이 그것입니다.

@@ -499,6 +499,22 @@ GROUP  BY 1 ORDER BY 3 DESC;
 
 This path is not available inside the workshop's sandbox accounts, which have no billing console access; set it up in your own account.
 
+### Checking the estimate against the bill
+
+The two paths were run against the same pipeline, nf-core/sarek `test` (23 tasks, run name `cranky_ride`), in an account where split cost allocation data was enabled. `run-cost.py` ran within minutes of the pipeline finishing; the CUR 2.0 export with the split data arrived about 28 hours later.
+
+| | `run-cost.py` (immediate) | Cost and Usage Report (next day) |
+|---|---|---|
+| Tasks used (attributed / `split_line_item_split_cost`) | $0.0112 | $0.0090 |
+| Idle share (`split_line_item_unused_cost`) | not split out | $0.0619 |
+| Instances billed (incurred / EC2 `BoxUsage` lines) | $0.0653 | $0.0709 |
+| Used + idle vs EC2 lines | | $0.0709 vs $0.0709 |
+| Utilisation | 17% | 13% |
+
+Three things stand out. The CUR's split plus unused cost reconciles to the EC2 line items of the five instances to the fifth decimal, which is the guarantee the billing data gives and an estimate cannot. The script's incurred figure came in 8% low because the last instance was still running when the script was called, and Batch kept each instance alive a few idle minutes after its final job; the `+` marker in the script's output flags exactly this. The attributed figure came in 25% high because the script prices CPU and memory at the instance's blended hourly rate, while split cost allocation data prices vCPU-hours and GB-hours separately with a 9:1 weighting derived from Fargate pricing, so a 1-vCPU / 1-GiB task is cheaper in the CUR than in the script. The ranking of processes is the same either way, and both say the same thing about this run: most of the money bought waiting, not computing.
+
+Two practical notes from doing this. The `nf-*` tag keys did not exist in the Billing console until the first tagged usage had been processed, about a day after the run, so `update-cost-allocation-tags-status` failed with `Tag keys not found` on the day of the run and succeeded the next; activate the tags, then run `start-cost-allocation-tag-backfill` so earlier usage in the month picks them up. Until the backfill lands, the Batch-managed tags `aws:batch:job-queue`, `aws:batch:job-definition` and `aws:batch:compute-environment` are already present on the task rows and are enough to isolate one queue's jobs, which is how the table above was produced.
+
 ### How HealthOmics does it
 
 HealthOmics bills per task on instances it owns, so every run already exposes task-level cost: the run page in the console lists each task with its instance type and the price, and `aws omics get-run-task` returns the same. Nothing to configure, nothing to wait for. That convenience is part of what the managed service charges for; on Batch you get the raw instances and build the attribution yourself, which is the trade this lab keeps coming back to.
