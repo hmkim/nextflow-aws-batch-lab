@@ -21,6 +21,7 @@ The two match almost one to one. A Nextflow process becomes a Batch job; the pro
 | `scripts/setup-nextflow-batch.sh` | One-shot, idempotent setup. Installs Java 17 and Nextflow 24.10, deploys the template, writes `nextflow.config`. |
 | `scripts/run-cost.py` | Estimates what a run cost, per process and per instance, from its trace file. |
 | `pipeline/ref-check.nf` | Optional: reads a reference file through a Mountpoint for Amazon S3 mount instead of staging it. |
+| `docs/KIRO.md` | The same lab driven from Kiro CLI or the Kiro IDE: one prompt per step, with the commands Kiro runs, the approvals you will see and the expected result. `.kiro/steering/aws-batch-lab.md` carries the rules Kiro follows. |
 | `docs/` | Korean guide and console screenshots. |
 
 ## How it fits together
@@ -240,7 +241,7 @@ sudo chown "$(id -u):$(id -g)" /mnt/workflow/pubdir
 | Resource | Purpose |
 |---|---|
 | IAM role and instance profile | Compute instances run as this role: ECS agent policy plus read/write on the work bucket, so tasks stage files without extra credentials. |
-| Launch template | User data installs a self-contained AWS CLI under `/opt/aws-cli`. It is a conda environment (Miniforge plus the `awscli` package), not the AWS CLI v2 installer: the v2 build depends on host libraries such as `libz` that minimal images (biocontainers, for example) do not ship, while the conda build carries every library it needs inside `/opt/aws-cli`. Nextflow mounts the *grandparent* directory of `cliPath` into every task container at the same path, so `/opt/aws-cli/bin/aws` mounts `/opt/aws-cli` and nothing else. Keep it that way: a path such as `/usr/local/bin/aws` would shadow the container's whole `/usr/local`. |
+| Launch template | User data installs a self-contained AWS CLI under `/opt/aws-cli`. It is a conda environment (the conda-forge `awscli` package, created with micromamba), not the AWS CLI v2 installer: the v2 build depends on host libraries such as `libz` that minimal images (biocontainers, for example) do not ship, while the conda build carries every library it needs inside `/opt/aws-cli`. Nextflow mounts the *grandparent* directory of `cliPath` into every task container at the same path, so `/opt/aws-cli/bin/aws` mounts `/opt/aws-cli` and nothing else. Keep it that way: a path such as `/usr/local/bin/aws` would shadow the container's whole `/usr/local`. |
 | Compute environment | Managed, EC2, `optimal` instance types, 0 to 16 vCPUs. Batch launches instances when jobs arrive and terminates them after a few idle minutes. |
 | Job queue | `nextflow-batch-queue`, the name the Nextflow profile submits to. |
 
