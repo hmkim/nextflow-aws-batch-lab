@@ -145,12 +145,29 @@ def fmt_secs(s):
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
+def default_region():
+    """Region of the Batch jobs: aws.region in the lab's nextflow.config when the script runs from
+    the repository root, otherwise whatever the environment or the AWS CLI profile provides. Hosts
+    such as the workshop IDE set no region at all, and boto3 refuses to create regional clients
+    without one."""
+    try:
+        with open("nextflow.config") as f:
+            m = re.search(r"""\bregion\s*=\s*['"]([a-z]{2}(?:-[a-z]+)+-\d)['"]""", f.read())
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    return boto3.session.Session().region_name
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     rows = read_trace(sys.argv[1])
-    session = boto3.session.Session()
-    region = session.region_name or "us-east-1"
+    region = default_region()
+    if not region:
+        sys.exit("no AWS region: set AWS_REGION, or run from the directory that holds nextflow.config")
+    session = boto3.session.Session(region_name=region)
     batch, ecs, ec2, ssm = (session.client(s) for s in ("batch", "ecs", "ec2", "ssm"))
     pricing = session.client("pricing", region_name="us-east-1")
 
