@@ -170,12 +170,22 @@ Resources:
               #    the v2 build links against host libraries (libz, ...) that minimal images such
               #    as biocontainers do not have, while the conda build ships every library it
               #    needs inside /opt/aws-cli. This is the layout the Nextflow docs recommend.
+              #    The environment is created with micromamba, a single static binary, instead of
+              #    a Miniforge install plus `conda install`: conda's solver was killed by the OOM
+              #    killer on 4 GiB instances (c6i.large, the type Batch picks for a 1-vCPU task),
+              #    which left the ECS agent unstarted and the job in RUNNABLE for good.
+              case "$ARCH" in
+                x86_64)  MARCH=linux-64 ;;
+                aarch64) MARCH=linux-aarch64 ;;
+                *) echo "[bootstrap] unsupported architecture $ARCH"; false ;;
+              esac
               curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
-                "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-$ARCH.sh" -o /tmp/miniforge.sh
-              bash /tmp/miniforge.sh -b -p /opt/aws-cli
-              rm -f /tmp/miniforge.sh
-              /opt/aws-cli/bin/conda install -y -q -c conda-forge awscli
-              /opt/aws-cli/bin/conda clean -a -y -q
+                "https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-$MARCH" -o /tmp/micromamba
+              chmod +x /tmp/micromamba
+              export MAMBA_ROOT_PREFIX=/tmp/mamba-root
+              /tmp/micromamba create -y -q -p /opt/aws-cli -c conda-forge awscli
+              /tmp/micromamba clean -a -y -q
+              rm -rf /tmp/micromamba /tmp/mamba-root
               /opt/aws-cli/bin/aws --version
 
               # 2. Optional: Mountpoint for Amazon S3 presents the data bucket as a read-only
