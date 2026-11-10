@@ -21,6 +21,7 @@ AWS Batch는 컨테이너 작업을 대규모로 실행하는 관리형 서비�
 | `scripts/setup-nextflow-batch.sh` | 한 번에 끝나는 멱등 설정 스크립트. Java 17과 Nextflow 24.10 설치, 템플릿 배포, `nextflow.config` 작성. |
 | `scripts/run-cost.py` | 트레이스 파일로 실행 비용을 프로세스별·인스턴스별로 추정합니다. |
 | `pipeline/ref-check.nf` | 선택 사항. 참조 파일을 스테이징하지 않고 Mountpoint for Amazon S3 마운트를 통해 읽습니다. |
+| `docs/KIRO.ko.md` | 같은 실습을 Kiro CLI 또는 Kiro IDE의 채팅으로 진행하는 가이드. 단계마다 입력할 프롬프트 하나, Kiro가 실행하는 명령, 뜨는 승인 프롬프트, 기대 결과를 적었습니다. Kiro가 따르는 규칙은 `.kiro/steering/aws-batch-lab.md`에 있습니다. |
 | `docs/` | 한국어 가이드와 콘솔 스크린샷. |
 
 ## 동작 구조
@@ -240,7 +241,7 @@ sudo chown "$(id -u):$(id -g)" /mnt/workflow/pubdir
 | 리소스 | 역할 |
 |---|---|
 | IAM 역할과 인스턴스 프로파일 | 컴퓨팅 인스턴스가 이 역할로 실행됩니다. ECS 에이전트 정책과 작업 버킷 읽기/쓰기 권한이 있어 태스크가 별도 자격 증명 없이 파일을 스테이징합니다. |
-| 시작 템플릿 | user data가 `/opt/aws-cli` 아래에 독립 실행형 AWS CLI를 설치합니다. AWS CLI v2 설치 프로그램이 아니라 conda 환경(Miniforge + `awscli` 패키지)입니다. v2 빌드는 `libz` 같은 호스트 라이브러리에 의존해 biocontainers처럼 최소화된 이미지에서는 실행되지 않지만, conda 빌드는 필요한 라이브러리를 모두 `/opt/aws-cli` 안에 가지고 있습니다. Nextflow는 `cliPath`의 *조부모* 디렉터리를 모든 태스크 컨테이너에 같은 경로로 마운트하므로, `/opt/aws-cli/bin/aws`는 `/opt/aws-cli`만 마운트합니다. 이 경로를 유지하세요. `/usr/local/bin/aws` 같은 경로를 쓰면 컨테이너의 `/usr/local` 전체가 가려집니다. |
+| 시작 템플릿 | user data가 `/opt/aws-cli` 아래에 독립 실행형 AWS CLI를 설치합니다. AWS CLI v2 설치 프로그램이 아니라 conda 환경(conda-forge의 `awscli` 패키지, micromamba로 생성)입니다. v2 빌드는 `libz` 같은 호스트 라이브러리에 의존해 biocontainers처럼 최소화된 이미지에서는 실행되지 않지만, conda 빌드는 필요한 라이브러리를 모두 `/opt/aws-cli` 안에 가지고 있습니다. Nextflow는 `cliPath`의 *조부모* 디렉터리를 모든 태스크 컨테이너에 같은 경로로 마운트하므로, `/opt/aws-cli/bin/aws`는 `/opt/aws-cli`만 마운트합니다. 이 경로를 유지하세요. `/usr/local/bin/aws` 같은 경로를 쓰면 컨테이너의 `/usr/local` 전체가 가려집니다. |
 | 컴퓨팅 환경 | 관리형, EC2, `optimal` 인스턴스 유형, 0~16 vCPU. 작업이 들어오면 Batch가 인스턴스를 시작하고 몇 분간 유휴 상태면 종료합니다. |
 | 작업 큐 | `nextflow-batch-queue`. Nextflow 프로필이 작업을 제출하는 이름입니다. |
 
