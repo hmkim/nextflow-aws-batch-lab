@@ -4,7 +4,7 @@ The [README](../README.md) walks through this lab by typing commands in a termin
 
 [한국어 가이드](KIRO.ko.md)
 
-Each step below has four parts: the prompt to paste, the commands Kiro ran when it followed the prompt, the number of approval prompts you will see, and what a successful result looks like. The times and approval counts come from two passes through the whole guide on the workshop IDE (Amazon Linux 2023, `m8i.large`, Kiro CLI 3.1.0 with the default `auto` model) on 2026-11-10, each starting with no lab resources in the account. Where the two passes differed, both values are given. Your numbers will differ a little: Kiro chooses how to group commands, and the first run of the day is always the slowest.
+Each step below has four parts: the prompt to paste, the commands Kiro ran when it followed the prompt, the number of approval prompts you will see, and what a successful result looks like. The times and approval counts come from two passes through the whole guide on the workshop IDE (Amazon Linux 2023, `m8i.large`, Kiro CLI 3.1.0 with the default `auto` model) on 2026-11-10, each starting with no lab resources in the account. Where the two passes differed, both values are given. Your numbers will differ a little: Kiro chooses how to group commands, and the first run of the day is always the slowest. On the current workshop IDE the approval prompts do not appear at all; see [How approvals work](#how-approvals-work).
 
 Keep the whole lab in one chat session. Later prompts say things like "run it again", and Kiro needs the earlier turns to know what "it" is.
 
@@ -84,6 +84,8 @@ Which steering rules apply to this lab? List the "never do" rules in one line ea
 Kiro answers in a few seconds, without running anything, with the eight rules from `aws-batch-lab.md`: no CloudFormation outside the script, no Batch settings by hand, no Nextflow version changes, no script rewrites, `nextflow -bg` instead of `nohup`, no account IDs or credentials in the output, never delete the work bucket, stay in the stack's region. If it answers that no steering is loaded, the workspace is not trusted or you started Kiro outside the repository root.
 
 ### How approvals work
+
+Workshop IDE first, because it is the exception. The Workshop Studio instance (Kiro IDE Browser template 1.1.0 and later) ships a Kiro permissions file, `~/.kiro/settings/permissions.yaml` with `capability: all`, that approves every tool in advance. Kiro CLI and the Kiro IDE on that instance run the commands in this guide without a single prompt (verified on 2026-11-11 with Kiro CLI 3.2.0). Read the approval counts below as the number of tool calls Kiro made; everything else in the guide is the same there. The rest of this section describes a machine with a default Kiro setup.
 
 Kiro asks before it runs a shell command, writes or deletes a file, fetches a web page, or calls an MCP tool. Reading files inside the repository does not ask. Each request shows the exact command and four choices. In Kiro CLI they read **Allow once**, **Deny once**, **Create allow rule to approve future similar actions** and **Create deny rule to block future similar actions**; the IDE card shows the same four as Allow, Deny, Always allow and Always deny. An allow rule offers a pattern (the exact command, or a wider one such as `nextflow *`) and a scope; "This session" keeps the rule until you close the chat, which is the right scope for a lab.
 
@@ -285,9 +287,9 @@ This prompt asks Kiro to show changes to files the steering forbids it to edit. 
 
 ## When Kiro does something else
 
-Kiro proposes to rewrite the setup script or to deploy CloudFormation directly. Deny the command and remind it: "Follow the steering file: run the script as is." This usually happens when the workspace was not trusted and the steering file is not loaded; check with the steering prompt in "Open the repository and trust it".
+Kiro proposes to rewrite the setup script or to deploy CloudFormation directly. Deny the command and remind it: "Follow the steering file: run the script as is." On the workshop IDE there is no prompt to deny, so interrupt the turn instead (the **Cancel** button in the IDE chat, Ctrl+C in the CLI) and send the same reminder. This usually happens when the workspace was not trusted and the steering file is not loaded; check with the steering prompt in "Open the repository and trust it".
 
-Kiro runs `nextflow` with `nohup ... &`. Deny it. The steering file names `nextflow -bg` as the only way to detach a run; ask Kiro to use that.
+Kiro runs `nextflow` with `nohup ... &`. Deny it, or interrupt the turn on the workshop IDE. The steering file names `nextflow -bg` as the only way to detach a run; ask Kiro to use that.
 
 A command fails and Kiro stops with a diagnosis instead of fixing it. That is the steering file at work. While this guide was being written, a cold run failed on a bootstrap bug in the launch template (since fixed). Kiro read the instance's console output, quoted the failing lines of the template and the matching README troubleshooting row, and stopped. That is the behaviour you want from an agent running in your account. Read the diagnosis, fix the cause or report it, and paste the step's prompt again.
 

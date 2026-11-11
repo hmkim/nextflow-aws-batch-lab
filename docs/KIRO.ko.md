@@ -4,7 +4,7 @@
 
 [English guide](KIRO.md)
 
-아래 각 단계는 네 부분으로 되어 있습니다. 붙여 넣을 프롬프트, 프롬프트를 따라 Kiro가 실제로 실행한 명령, 참가자가 보게 될 승인 프롬프트 횟수, 성공했을 때의 모습입니다. 소요 시간과 승인 횟수는 2026-11-10에 워크숍 IDE(Amazon Linux 2023, `m8i.large`, Kiro CLI 3.1.0, 기본 `auto` 모델)에서 랩 리소스가 하나도 없는 계정 상태로 시작해 이 가이드를 처음부터 끝까지 두 번 실행해 측정한 값입니다. 두 번의 값이 다른 곳은 둘 다 적었습니다. 실제 수치는 조금씩 다릅니다. 명령을 어떻게 묶을지는 Kiro가 정하고, 그날의 첫 실행은 언제나 가장 느립니다.
+아래 각 단계는 네 부분으로 되어 있습니다. 붙여 넣을 프롬프트, 프롬프트를 따라 Kiro가 실제로 실행한 명령, 참가자가 보게 될 승인 프롬프트 횟수, 성공했을 때의 모습입니다. 소요 시간과 승인 횟수는 2026-11-10에 워크숍 IDE(Amazon Linux 2023, `m8i.large`, Kiro CLI 3.1.0, 기본 `auto` 모델)에서 랩 리소스가 하나도 없는 계정 상태로 시작해 이 가이드를 처음부터 끝까지 두 번 실행해 측정한 값입니다. 두 번의 값이 다른 곳은 둘 다 적었습니다. 실제 수치는 조금씩 다릅니다. 명령을 어떻게 묶을지는 Kiro가 정하고, 그날의 첫 실행은 언제나 가장 느립니다. 현재 워크숍 IDE에서는 승인 프롬프트가 전혀 나타나지 않습니다. [승인은 어떻게 동작하나](#승인은-어떻게-동작하나)를 참고하세요.
 
 랩 전체를 하나의 채팅 세션에서 진행하세요. 뒤쪽 프롬프트에는 "run it again"처럼 앞 대화를 전제로 한 표현이 있어서, Kiro가 "it"이 무엇인지 알려면 앞선 턴이 필요합니다.
 
@@ -84,6 +84,8 @@ Which steering rules apply to this lab? List the "never do" rules in one line ea
 Kiro는 아무것도 실행하지 않고 몇 초 안에 `aws-batch-lab.md`의 여덟 가지 규칙으로 답합니다. 스크립트 밖의 CloudFormation 금지, Batch 설정 수동 변경 금지, Nextflow 버전 변경 금지, 스크립트 수정 금지, `nohup` 대신 `nextflow -bg`, 출력에 계정 ID와 자격 증명 금지, 작업 버킷 삭제 금지, 스택의 리전 유지입니다. steering이 로드되지 않았다고 답하면 워크스페이스를 신뢰하지 않았거나 리포지토리 루트 밖에서 Kiro를 시작한 것입니다.
 
 ### 승인은 어떻게 동작하나
+
+예외인 워크숍 IDE부터 설명합니다. Workshop Studio 인스턴스(Kiro IDE Browser 템플릿 1.1.0 이상)에는 모든 도구를 미리 승인하는 Kiro 권한 파일 `~/.kiro/settings/permissions.yaml`(`capability: all`)이 들어 있습니다. 그 인스턴스의 Kiro CLI와 Kiro IDE는 이 가이드의 명령을 프롬프트 한 번 없이 실행합니다(2026-11-11, Kiro CLI 3.2.0으로 확인). 아래의 승인 횟수는 Kiro가 수행한 도구 호출 수로 읽으면 됩니다. 그 밖의 내용은 워크숍 IDE에서도 같습니다. 이 섹션의 나머지는 기본 설정의 개인 PC 기준입니다.
 
 Kiro는 셸 명령을 실행하거나, 파일을 쓰거나 지우거나, 웹 페이지를 가져오거나, MCP 도구를 호출하기 전에 승인을 요청합니다. 리포지토리 안의 파일을 읽을 때는 요청하지 않습니다. 요청에는 정확한 명령과 네 가지 선택지가 표시됩니다. Kiro CLI에서는 **Allow once**, **Deny once**, **Create allow rule to approve future similar actions**, **Create deny rule to block future similar actions**이고, IDE 카드에서는 같은 네 가지가 Allow, Deny, Always allow, Always deny로 표시됩니다. allow 규칙을 만들면 패턴(정확한 명령, 또는 `nextflow *`처럼 넓은 패턴)과 범위를 고릅니다. "This session"은 채팅을 닫을 때까지 규칙을 유지하는 범위로, 랩에 알맞습니다.
 
@@ -285,9 +287,9 @@ What would I change in nextflow.config and in cfn/batch-nextflow.yaml to run thi
 
 ## Kiro가 다른 행동을 할 때
 
-Kiro가 설정 스크립트를 다시 쓰거나 CloudFormation을 직접 배포하자고 제안합니다. 명령을 거절하고 이렇게 일깨우세요. "Follow the steering file: run the script as is." 보통 워크스페이스를 신뢰하지 않아 steering 파일이 로드되지 않았을 때 생기는 일입니다. "리포지토리 열기와 워크스페이스 신뢰"의 steering 확인 프롬프트로 점검하세요.
+Kiro가 설정 스크립트를 다시 쓰거나 CloudFormation을 직접 배포하자고 제안합니다. 명령을 거절하고 이렇게 일깨우세요. "Follow the steering file: run the script as is." 워크숍 IDE에는 거절할 프롬프트가 없으므로 대신 턴을 중단하고(IDE 채팅의 **Cancel** 버튼, CLI에서는 Ctrl+C) 같은 말을 보내세요. 보통 워크스페이스를 신뢰하지 않아 steering 파일이 로드되지 않았을 때 생기는 일입니다. "리포지토리 열기와 워크스페이스 신뢰"의 steering 확인 프롬프트로 점검하세요.
 
-Kiro가 `nohup ... &`로 `nextflow`를 실행합니다. 거절하세요. steering 파일은 실행을 떼어 놓는 유일한 방법으로 `nextflow -bg`를 지정하고 있으니, 그것을 쓰라고 요청하세요.
+Kiro가 `nohup ... &`로 `nextflow`를 실행합니다. 거절하거나, 워크숍 IDE에서는 턴을 중단하세요. steering 파일은 실행을 떼어 놓는 유일한 방법으로 `nextflow -bg`를 지정하고 있으니, 그것을 쓰라고 요청하세요.
 
 명령이 실패했는데 Kiro가 고치지 않고 진단만 하고 멈춥니다. steering 파일이 작동하는 것입니다. 이 가이드를 쓰는 동안 콜드 런 하나가 시작 템플릿의 부트스트랩 버그로 실패한 적이 있습니다(이후 수정됨). Kiro는 인스턴스의 콘솔 출력을 읽고, 템플릿의 문제 줄과 README 문제 해결 표의 해당 행을 인용한 뒤 멈췄습니다. 참가자 계정에서 동작하는 에이전트에게 바라는 바로 그 행동입니다. 진단을 읽고 원인을 고치거나 보고한 뒤, 그 단계의 프롬프트를 다시 붙여 넣으세요.
 
