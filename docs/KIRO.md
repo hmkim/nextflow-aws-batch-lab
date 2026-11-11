@@ -143,6 +143,8 @@ Success looks like: Kiro names the queue `nextflow-batch-queue` and the image `p
 
 ### Run it again
 
+Send this as soon as Step 2's answer appears, before you read on. The timing matters, as explained below.
+
 Prompt:
 
 ```text
@@ -153,7 +155,7 @@ What Kiro ran: `nextflow run main.nf -profile batch --addressee 'warm run' -with
 
 Approvals: 2 to 4.
 
-Success looks like: a Duration well under a minute against 2 to 4 minutes before, and Kiro explains that the instance from the first run was still registered with the compute environment, so the job started within seconds on a host that already had the image. Measured: 51 s and 64 s for the turn; the task took 19 s in both passes, with a 6 to 7 s wait. If more than a few minutes passed since the first run, Batch may already have terminated the instance and the second run is cold again; Kiro should say so when it sees a long Duration.
+Success looks like: a Duration well under a minute against 2 to 4 minutes before, and Kiro explains that the instance from the first run was still registered with the compute environment, so the job started within seconds on a host that already had the image. Measured: 51 s and 64 s for the turn; the task took 19 s in both passes, with a 6 to 7 s wait. This only happens when the prompt goes in within about a minute of Step 2 finishing, because Batch terminates the idle instance about two minutes after the queue empties. In a third pass the prompt went in 2 min 20 s after the first job had stopped, the instance was already gone, and the "warm" run waited 3 min 11 s on a new instance (3 min 52 s for the turn). Kiro noticed the long wait and said why, and the cost step later showed the two runs on different instance IDs. Either outcome teaches the same thing, scale-to-zero has a start-up price, so if you got the cold version, read Kiro's explanation and move on.
 
 ### Change the resource request without touching the pipeline
 

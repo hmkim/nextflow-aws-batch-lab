@@ -351,6 +351,8 @@ Duration    : 35s
 
 The difference between 3m 41s and 35s is the cost of scaling from zero. In production you trade it against idle cost with a minimum vCPU count on the compute environment, or accept the delay for infrequent pipelines.
 
+Run the second command within a minute or two of the first. Batch terminates the idle instance about two minutes after the queue empties, and a run submitted after that is cold again. Measured: a run submitted 2 min 20 s after the previous job had stopped waited 3 min 11 s for a new instance.
+
 ### Try it: change the resource request without touching the pipeline
 
 `cpus` and `memory` are what Batch uses to pick an instance. The pipeline sets neither, so the task asked for the default 1 vCPU / 1 GiB and Batch picked a `c6i.large`. Override them from a second configuration file, scoped to the one process, and run again. `-c` layers the file on top of `nextflow.config`, so the profile is untouched:
