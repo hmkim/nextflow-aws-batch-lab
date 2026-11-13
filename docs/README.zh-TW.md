@@ -21,7 +21,7 @@ Nextflow 把管線邏輯和執行位置分開。管線是一組用 channel 串�
 | `scripts/setup-nextflow-batch.sh` | 一次完成、可重複執行(冪等)的設定指令碼。安裝 Java 17 和 Nextflow 24.10、部署範本、寫出 `nextflow.config`。 |
 | `scripts/run-cost.py` | 依 trace 檔案估算一次執行的成本,按 process 和執行個體拆分。 |
 | `pipeline/ref-check.nf` | 選用。不暫存參考檔案,而是透過 Mountpoint for Amazon S3 掛載直接讀取。 |
-| `docs/KIRO.zh-TW.md` | 同一個實作改由 Kiro CLI 或 Kiro IDE 的聊天視窗進行。每一步列出要輸入的一個提示詞、Kiro 執行的指令、會出現的核准提示和預期結果。Kiro 遵循的規則在 `.kiro/steering/aws-batch-lab.md`。 |
+| `docs/KIRO.zh-TW.md` | 現場工作坊指南,依序進行冷啟動與暖啟動、Nextflow 與 Batch 的對應、資源覆寫和 nf-core/sarek 四個步驟;個人環境設定與參考資料收在下方的摺疊區段。Kiro 遵循的規則位於 `.kiro/steering/aws-batch-lab.md`。 |
 | `docs/` | 韓文與繁體中文指南、主控台截圖。 |
 
 ## 運作架構
