@@ -2,7 +2,7 @@
 
 The [README](../README.md) walks through this lab by typing commands in a terminal. This guide runs the same lab through Kiro: you paste one prompt per step into the chat of Kiro CLI or the Kiro IDE, Kiro runs the lab's scripts and commands, and you read its report. The AWS resources, the pipeline and the results are identical; what changes is who types the commands and who explains the output.
 
-[한국어 가이드](KIRO.ko.md)
+[한국어 가이드](KIRO.ko.md) · [繁體中文指南](KIRO.zh-TW.md)
 
 Each step below has four parts: the prompt to paste, the commands Kiro ran when it followed the prompt, the number of approval prompts you will see, and what a successful result looks like. The times and approval counts come from two passes through the whole guide on the workshop IDE (Amazon Linux 2023, `m8i.large`, Kiro CLI 3.1.0 with the default `auto` model) on 2026-11-10, each starting with no lab resources in the account. Where the two passes differed, both values are given. Your numbers will differ a little: Kiro chooses how to group commands, and the first run of the day is always the slowest. On the current workshop IDE the approval prompts do not appear at all; see [How approvals work](#how-approvals-work).
 
