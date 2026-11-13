@@ -143,10 +143,10 @@ WORK_BUCKET=my-nextflow-work-bucket bash scripts/setup-nextflow-batch.sh
     Installed version 24.10.5 build 5935
 ==> 2/5 Discovering region, VPC and buckets
     Region      : us-east-1
-    Account     : 123456789012
-    VPC         : vpc-0a21c17c0f1e85d1d
-    Subnets     : subnet-0a6f4d9593a8b8ddd,subnet-07de34ad336485c76,...
-    Work bucket : s3://omics-output-us-east-1-123456789012
+    Account     : <ACCOUNT_ID>
+    VPC         : <VPC_ID>
+    Subnets     : <SUBNET_ID_1>,<SUBNET_ID_2>,...
+    Work bucket : s3://omics-output-us-east-1-<ACCOUNT_ID>
 ==> 3/5 Deploying AWS Batch stack 'nextflow-batch' (3-5 minutes)
 Successfully created/updated stack - nextflow-batch
     Job queue   : nextflow-batch-queue
@@ -454,8 +454,8 @@ NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6
 TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
 
 instance             type             $/h  jobs      span   incurred  attributed
-i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
-i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+<INSTANCE_ID_1>     c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+<INSTANCE_ID_2>     c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
 TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
 
 Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.
