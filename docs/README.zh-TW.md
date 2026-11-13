@@ -8,9 +8,9 @@
 
 Nextflow 把管線邏輯和執行位置分開。管線是一組用 channel 串起來的 process,每個 process 宣告自己的輸入、輸出、資源需求(`cpus`、`memory`)和容器映像。process 實際在哪裡執行,由 `nextflow.config` 裡選的 *執行器(executor)* 決定,所以同一份 `main.nf` 可以不改一行就在筆電、HPC 排程器或雲端服務上執行。執行器負責把輸入搬到目標環境、用該平台的 API 提交任務、監看狀態、再把輸出收回來。
 
-AWS Batch 是大規模執行容器工作的受管服務。你只要建立一個運算環境(用哪些執行個體家族、最多多少 vCPU、Spot 還是隨需)和它前面的工作佇列。工作就是 ECS 任務,所以每個工作都是容器。Batch 會依佇列中等待的工作挑選合適的執行個體類型並啟動,在一台主機上塞進放得下的多個容器,佇列空了就縮減到 0。沒有排程器要安裝,也沒有叢集要一直開著。
+[AWS Batch](https://docs.aws.amazon.com/batch/latest/userguide/what-is-batch.html) 是一個全受管服務,負責佈建運算資源並大規模排程容器化的批次工作。你把一個[工作佇列](https://docs.aws.amazon.com/batch/latest/userguide/job_queues.html)關聯到一或多個[受管運算環境](https://docs.aws.amazon.com/batch/latest/userguide/managed_compute_environments.html),並在運算環境中設定允許的執行個體類型、最大 vCPU 數,以及 EC2 隨需或 Spot 容量。在本實作的 Amazon ECS 環境中,工作以[容器化應用程式的形式在 ECS 容器執行個體上執行](https://docs.aws.amazon.com/batch/latest/userguide/jobs.html)。AWS Batch 依照設定的[執行個體類型分配策略](https://docs.aws.amazon.com/batch/latest/userguide/allocation-strategies.html)替佇列中的工作選擇運算容量,當資源需求放得下時,可以把多個工作放在同一台執行個體上。因為本實作把 [`minvCpus` 設為 `0`](https://docs.aws.amazon.com/batch/latest/userguide/scaling-updates.html),排隊的工作做完後運算環境可以縮減回 0。你不需要安裝或維運另外的批次排程軟體。
 
-這兩個工具幾乎是一對一對應。Nextflow 的 process 變成 Batch 的 job,process 的 container 指示詞變成 job 的映像,`cpus` 和 `memory` 變成 job 的資源請求,也就是 Batch 挑選執行個體類型的依據。手動操作 Batch 時最繁瑣的部分,Nextflow 都代勞了:替每個容器映像註冊工作定義(job definition),在提交工作時用覆寫(override)帶入每個任務的 CPU 與記憶體,透過 S3 工作目錄暫存(stage)輸入輸出,重試失敗的任務,並沿用環境中的 IAM 憑證。Seqera 的工程文章 [Nextflow and AWS Batch: Inside the Integration](https://seqera.io/blog/nextflow-and-aws-batch-inside-the-integration-part-1-of-3/) 詳細說明了這套對應關係,而該文指出的唯一代價,也是你在這個實作中會親眼看到的:運算環境從 0 開始啟動執行個體時的啟動延遲。
+這兩個工具幾乎是一對一對應。Nextflow 的 process 變成 Batch 的 job,process 的 container 指示詞變成 job 的映像,[`cpus` 指示詞](https://docs.seqera.io/nextflow/reference/process/directives/cpus)定義每個任務需要的 CPU 數,和 `memory` 一起成為 job 的資源請求,也就是 AWS Batch 選擇合適運算容量的依據。手動操作 Batch 時最繁瑣的部分,Nextflow 都代勞了:替每個容器映像註冊工作定義(job definition),以[每個工作的資源覆寫(override)](https://docs.aws.amazon.com/batch/latest/APIReference/API_ContainerOverrides.html)帶入每個任務的 CPU 與記憶體,透過 S3 工作目錄暫存(stage)輸入輸出,重試失敗的任務,並沿用環境中的 IAM 憑證。Seqera 的工程文章 [Nextflow and AWS Batch: Inside the Integration](https://seqera.io/blog/nextflow-and-aws-batch-inside-the-integration-part-1-of-3/) 詳細說明了這套對應關係,而該文指出的唯一代價,也是你在這個實作中會親眼看到的:運算環境從 0 開始啟動執行個體時的啟動延遲。
 
 ## 內容組成
 
