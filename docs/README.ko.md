@@ -21,7 +21,7 @@ Nextflow는 파이프라인 로직과 실행 장소를 분리합니다. 파이�
 | `scripts/setup-nextflow-batch.sh` | 한 번에 끝나는 멱등 설정 스크립트. Java 17과 Nextflow 24.10 설치, 템플릿 배포, `nextflow.config` 작성. |
 | `scripts/run-cost.py` | 트레이스 파일로 실행 비용을 프로세스별·인스턴스별로 추정합니다. |
 | `pipeline/ref-check.nf` | 선택 사항. 참조 파일을 스테이징하지 않고 Mountpoint for Amazon S3 마운트를 통해 읽습니다. |
-| `docs/KIRO.ko.md` | 같은 실습을 Kiro CLI 또는 Kiro IDE의 채팅으로 진행하는 가이드. 단계마다 입력할 프롬프트 하나, Kiro가 실행하는 명령, 뜨는 승인 프롬프트, 기대 결과를 적었습니다. Kiro가 따르는 규칙은 `.kiro/steering/aws-batch-lab.md`에 있습니다. |
+| `docs/KIRO.ko.md` | 라이브 워크숍 가이드. 콜드·웜 런, Batch 실행 관계, resource override, nf-core/sarek의 네 단계만 먼저 보여 주고, 개인 환경 설정과 참고 자료는 아래쪽의 접힌 영역에 둡니다. Kiro가 따르는 규칙은 `.kiro/steering/aws-batch-lab.md`에 있습니다. |
 | `docs/` | 한국어·繁體中文 가이드와 콘솔 스크린샷. |
 
 ## 동작 구조

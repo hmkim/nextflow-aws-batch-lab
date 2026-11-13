@@ -21,7 +21,7 @@ The two match almost one to one. A Nextflow process becomes a Batch job; the pro
 | `scripts/setup-nextflow-batch.sh` | One-shot, idempotent setup. Installs Java 17 and Nextflow 24.10, deploys the template, writes `nextflow.config`. |
 | `scripts/run-cost.py` | Estimates what a run cost, per process and per instance, from its trace file. |
 | `pipeline/ref-check.nf` | Optional: reads a reference file through a Mountpoint for Amazon S3 mount instead of staging it. |
-| `docs/KIRO.md` | The same lab driven from Kiro CLI or the Kiro IDE: one prompt per step, with the commands Kiro runs, the approvals you will see and the expected result. `.kiro/steering/aws-batch-lab.md` carries the rules Kiro follows. |
+| `docs/KIRO.md` | Live workshop guide: four prompts for cold and warm runs, Batch mapping, resource overrides, and nf-core/sarek. Self-paced setup and references are collapsed below the live path. `.kiro/steering/aws-batch-lab.md` carries the rules Kiro follows. |
 | `docs/` | Korean and Traditional Chinese guides, console screenshots. |
 
 ## How it fits together
