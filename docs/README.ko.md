@@ -2,7 +2,7 @@
 
 빈 계정에서 시작해 Nextflow 파이프라인을 AWS Batch에서 끝까지 한 번 실행합니다. [AWS HealthOmics: Modernizing Genomics from Storage to GenAI](https://catalog.us-east-1.prod.workshops.aws/workshops/6bff9693-78fe-4ab5-9695-0d85356f4d80/en-US) 워크숍의 자매 랩으로, 그 워크숍의 GreetingsNF 파이프라인을 그대로 가져와 두 실행 엔진을 나란히 비교할 수 있게 했습니다. 단독으로도 동작하며, 기본 VPC가 있는 AWS 계정이면 어디서든 됩니다.
 
-[English guide](../README.md)
+[English guide](../README.md) · [繁體中文指南](README.zh-TW.md)
 
 ## Nextflow와 AWS Batch가 잘 맞는 이유
 
@@ -22,7 +22,7 @@ AWS Batch는 컨테이너 작업을 대규모로 실행하는 관리형 서비�
 | `scripts/run-cost.py` | 트레이스 파일로 실행 비용을 프로세스별·인스턴스별로 추정합니다. |
 | `pipeline/ref-check.nf` | 선택 사항. 참조 파일을 스테이징하지 않고 Mountpoint for Amazon S3 마운트를 통해 읽습니다. |
 | `docs/KIRO.ko.md` | 같은 실습을 Kiro CLI 또는 Kiro IDE의 채팅으로 진행하는 가이드. 단계마다 입력할 프롬프트 하나, Kiro가 실행하는 명령, 뜨는 승인 프롬프트, 기대 결과를 적었습니다. Kiro가 따르는 규칙은 `.kiro/steering/aws-batch-lab.md`에 있습니다. |
-| `docs/` | 한국어 가이드와 콘솔 스크린샷. |
+| `docs/` | 한국어·繁體中文 가이드와 콘솔 스크린샷. |
 
 ## 동작 구조
 

@@ -2,7 +2,7 @@
 
 Run a Nextflow pipeline on AWS Batch, from an empty account to a finished run, in one sitting. The lab is a companion to the [AWS HealthOmics: Modernizing Genomics from Storage to GenAI](https://catalog.us-east-1.prod.workshops.aws/workshops/6bff9693-78fe-4ab5-9695-0d85356f4d80/en-US) workshop: it reuses that workshop's GreetingsNF pipeline so you can compare the two execution engines side by side. It stands on its own, though; any AWS account with a default VPC works.
 
-[한국어 가이드](docs/README.ko.md)
+[한국어 가이드](docs/README.ko.md) · [繁體中文指南](docs/README.zh-TW.md)
 
 ## Why Nextflow and AWS Batch fit together
 
@@ -22,7 +22,7 @@ The two match almost one to one. A Nextflow process becomes a Batch job; the pro
 | `scripts/run-cost.py` | Estimates what a run cost, per process and per instance, from its trace file. |
 | `pipeline/ref-check.nf` | Optional: reads a reference file through a Mountpoint for Amazon S3 mount instead of staging it. |
 | `docs/KIRO.md` | The same lab driven from Kiro CLI or the Kiro IDE: one prompt per step, with the commands Kiro runs, the approvals you will see and the expected result. `.kiro/steering/aws-batch-lab.md` carries the rules Kiro follows. |
-| `docs/` | Korean guide and console screenshots. |
+| `docs/` | Korean and Traditional Chinese guides, console screenshots. |
 
 ## How it fits together
 
