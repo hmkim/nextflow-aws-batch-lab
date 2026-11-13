@@ -26,17 +26,11 @@ The two match almost one to one. A Nextflow process becomes a Batch job; the pro
 
 ## How it fits together
 
-Nextflow itself (the "head node") runs wherever you launch it: a workshop IDE, your laptop, an EC2 instance. For every process it submits one AWS Batch job. Batch places the job on an EC2 instance from the compute environment, pulls the container image and runs the task script. Inputs are staged from Amazon S3 into the container and outputs written back to the S3 work directory, using an AWS CLI that the launch template installs on the instance and Nextflow mounts into the container.
+Nextflow itself (the "head node") runs wherever you launch it: a workshop IDE, your laptop, an EC2 instance. For every task invocation, it submits one AWS Batch job. Batch places the job on an EC2 instance from the compute environment, pulls the container image and runs the task script. Inputs are staged from Amazon S3 into the container and outputs written back to the S3 work directory, using an AWS CLI that the launch template installs on the instance and Nextflow mounts into the container.
 
-```mermaid
-flowchart LR
-    IDE["Head node<br/>nextflow run -profile batch"] -->|SubmitJob per process| JQ["Job queue<br/>nextflow-batch-queue"]
-    JQ --> CE["Managed compute environment<br/>EC2, scales 0 to 16 vCPUs"]
-    CE --> EC2["EC2 instance<br/>ECS agent + /opt/aws-cli"]
-    EC2 --> C["Task container<br/>ubuntu:22.04"]
-    C <-->|stage in / out| S3[("S3 work directory")]
-    IDE <-->|.command.* files, results| S3
-```
+![Nextflow submits processes to AWS Batch, which runs ECS tasks on EC2 and stages data in S3.](docs/images/nextflow-on-aws-batch.svg)
+
+Solid gray arrows show scheduling and control, green arrows show S3 data movement, purple shows the container-image pull, and dashed arrows show logging or the optional Mountpoint path. The source is editable in [draw.io](docs/diagrams/nextflow-on-aws-batch.drawio).
 
 Where you run the head node matters more than it looks. A laptop works, but the Nextflow process must stay alive for the whole run and keep its network connection. Running it on an EC2 instance or a cloud IDE, as this lab does, lets you close your laptop while a multi-hour pipeline continues. To detach a long run from the terminal, use Nextflow's own background flag rather than `nohup ... &` (Nextflow reads the terminal and a plain `&` job gets stopped):
 
@@ -143,10 +137,10 @@ The script prints one section per step. The CloudFormation step is the slow one,
     Installed version 24.10.5 build 5935
 ==> 2/5 Discovering region, VPC and buckets
     Region      : us-east-1
-    Account     : 123456789012
-    VPC         : vpc-0a21c17c0f1e85d1d
-    Subnets     : subnet-0a6f4d9593a8b8ddd,subnet-07de34ad336485c76,...
-    Work bucket : s3://omics-output-us-east-1-123456789012
+    Account     : <ACCOUNT_ID>
+    VPC         : <VPC_ID>
+    Subnets     : <SUBNET_ID_1>,<SUBNET_ID_2>,...
+    Work bucket : s3://omics-output-us-east-1-<ACCOUNT_ID>
 ==> 3/5 Deploying AWS Batch stack 'nextflow-batch' (3-5 minutes)
 Successfully created/updated stack - nextflow-batch
     Job queue   : nextflow-batch-queue
@@ -454,8 +448,8 @@ NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6
 TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
 
 instance             type             $/h  jobs      span   incurred  attributed
-i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
-i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+<INSTANCE_ID_1>     c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+<INSTANCE_ID_2>     c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
 TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
 
 Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.

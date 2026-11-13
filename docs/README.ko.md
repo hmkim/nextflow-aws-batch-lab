@@ -26,17 +26,11 @@ Nextflow는 파이프라인 로직과 실행 장소를 분리합니다. 파이�
 
 ## 동작 구조
 
-Nextflow 자체(헤드 노드)는 실행하는 곳 어디서든 돌아갑니다. 워크숍 IDE, 노트북, EC2 인스턴스 모두 가능합니다. 프로세스마다 AWS Batch 작업(job) 하나를 제출하고, Batch는 컴퓨팅 환경의 EC2 인스턴스에 작업을 배치해 컨테이너 이미지를 받아 태스크 스크립트를 실행합니다. 입력은 Amazon S3에서 컨테이너로 스테이징되고 출력은 S3 작업 디렉터리에 다시 기록됩니다. 이때 시작 템플릿이 인스턴스에 설치한 AWS CLI를 Nextflow가 컨테이너 안에 마운트해 사용합니다.
+Nextflow 자체(헤드 노드)는 실행하는 곳 어디서든 돌아갑니다. 워크숍 IDE, 노트북, EC2 인스턴스 모두 가능합니다. 태스크를 실행할 때마다 AWS Batch 작업(job) 하나를 제출하고, Batch는 컴퓨팅 환경의 EC2 인스턴스에 작업을 배치해 컨테이너 이미지를 받아 태스크 스크립트를 실행합니다. 입력은 Amazon S3에서 컨테이너로 스테이징되고 출력은 S3 작업 디렉터리에 다시 기록됩니다. 이때 시작 템플릿이 인스턴스에 설치한 AWS CLI를 Nextflow가 컨테이너 안에 마운트해 사용합니다.
 
-```mermaid
-flowchart LR
-    IDE["헤드 노드<br/>nextflow run -profile batch"] -->|프로세스마다 SubmitJob| JQ["작업 큐<br/>nextflow-batch-queue"]
-    JQ --> CE["관리형 컴퓨팅 환경<br/>EC2, 0~16 vCPU 자동 확장"]
-    CE --> EC2["EC2 인스턴스<br/>ECS 에이전트 + /opt/aws-cli"]
-    EC2 --> C["태스크 컨테이너<br/>ubuntu:22.04"]
-    C <-->|스테이지 인/아웃| S3[("S3 작업 디렉터리")]
-    IDE <-->|.command.* 파일, 결과| S3
-```
+![Nextflow가 태스크를 AWS Batch에 제출하고, Batch가 EC2의 ECS 태스크에서 실행하며 데이터를 S3에 스테이징하는 구조.](images/nextflow-on-aws-batch.svg)
+
+회색 실선은 스케줄링과 제어, 초록색은 S3 데이터 이동, 보라색은 컨테이너 이미지 가져오기, 점선은 로깅 또는 선택적 Mountpoint 경로를 나타냅니다. 편집 가능한 원본은 [draw.io 파일](diagrams/nextflow-on-aws-batch.drawio)입니다.
 
 헤드 노드를 어디서 띄우는지는 생각보다 중요합니다. 노트북에서도 되지만 Nextflow 프로세스가 실행 내내 살아 있고 네트워크가 유지돼야 합니다. 이 랩처럼 EC2 인스턴스나 클라우드 IDE에서 실행하면 몇 시간짜리 파이프라인을 돌리는 동안 노트북을 닫아도 됩니다. 긴 실행을 터미널에서 떼어 놓을 때는 `nohup ... &` 대신 Nextflow 자체의 백그라운드 플래그를 씁니다(Nextflow가 터미널을 읽기 때문에 단순 `&` 작업은 정지됩니다):
 
@@ -143,10 +137,10 @@ WORK_BUCKET=my-nextflow-work-bucket bash scripts/setup-nextflow-batch.sh
     Installed version 24.10.5 build 5935
 ==> 2/5 Discovering region, VPC and buckets
     Region      : us-east-1
-    Account     : 123456789012
-    VPC         : vpc-0a21c17c0f1e85d1d
-    Subnets     : subnet-0a6f4d9593a8b8ddd,subnet-07de34ad336485c76,...
-    Work bucket : s3://omics-output-us-east-1-123456789012
+    Account     : <ACCOUNT_ID>
+    VPC         : <VPC_ID>
+    Subnets     : <SUBNET_ID_1>,<SUBNET_ID_2>,...
+    Work bucket : s3://omics-output-us-east-1-<ACCOUNT_ID>
 ==> 3/5 Deploying AWS Batch stack 'nextflow-batch' (3-5 minutes)
 Successfully created/updated stack - nextflow-batch
     Job queue   : nextflow-batch-queue
@@ -454,8 +448,8 @@ NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6
 TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
 
 instance             type             $/h  jobs      span   incurred  attributed
-i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
-i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+<INSTANCE_ID_1>     c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+<INSTANCE_ID_2>     c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
 TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
 
 Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.

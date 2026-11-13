@@ -26,17 +26,11 @@ Nextflow 把管線邏輯和執行位置分開。管線是一組用 channel 串�
 
 ## 運作架構
 
-Nextflow 本身(頭節點,head node)在你執行它的任何地方運作:工作坊 IDE、筆電、EC2 執行個體都可以。它為每個 process 提交一個 AWS Batch 工作(job),Batch 把工作放到運算環境的 EC2 執行個體上,拉取容器映像並執行任務指令碼。輸入從 Amazon S3 暫存到容器內,輸出再寫回 S3 工作目錄。這個過程使用啟動範本安裝在執行個體上的 AWS CLI,Nextflow 會把它掛載進容器裡。
+Nextflow 本身(頭節點,head node)在你執行它的任何地方運作:工作坊 IDE、筆電、EC2 執行個體都可以。每次執行 task 時,它會提交一個 AWS Batch 工作(job),Batch 把工作放到運算環境的 EC2 執行個體上,拉取容器映像並執行任務指令碼。輸入從 Amazon S3 暫存到容器內,輸出再寫回 S3 工作目錄。這個過程使用啟動範本安裝在執行個體上的 AWS CLI,Nextflow 會把它掛載進容器裡。
 
-```mermaid
-flowchart LR
-    IDE["頭節點<br/>nextflow run -profile batch"] -->|每個 process 一次 SubmitJob| JQ["工作佇列<br/>nextflow-batch-queue"]
-    JQ --> CE["受管運算環境<br/>EC2,0~16 vCPU 自動擴展"]
-    CE --> EC2["EC2 執行個體<br/>ECS agent + /opt/aws-cli"]
-    EC2 --> C["任務容器<br/>ubuntu:22.04"]
-    C <-->|stage in / out| S3[("S3 工作目錄")]
-    IDE <-->|.command.* 檔案、結果| S3
-```
+![Nextflow 將 task 提交到 AWS Batch,由 EC2 上的 ECS task 執行,並透過 S3 暫存資料。](images/nextflow-on-aws-batch.svg)
+
+灰色實線表示排程與控制,綠色表示 S3 資料移動,紫色表示拉取容器映像,虛線表示記錄或選用的 Mountpoint 路徑。可編輯的原始檔位於 [draw.io 檔案](diagrams/nextflow-on-aws-batch.drawio)。
 
 頭節點放在哪裡,比想像中重要。筆電也能跑,但 Nextflow 程序必須在整個執行期間保持存活且網路不中斷。像這個實作一樣在 EC2 執行個體或雲端 IDE 上執行,跑幾小時的管線時就可以把筆電合上。要把長時間執行從終端機脫離時,不要用 `nohup ... &`,改用 Nextflow 自己的背景旗標(Nextflow 會讀取終端機,所以單純用 `&` 的工作會被停住):
 
@@ -143,10 +137,10 @@ WORK_BUCKET=my-nextflow-work-bucket bash scripts/setup-nextflow-batch.sh
     Installed version 24.10.5 build 5935
 ==> 2/5 Discovering region, VPC and buckets
     Region      : us-east-1
-    Account     : 123456789012
-    VPC         : vpc-0a21c17c0f1e85d1d
-    Subnets     : subnet-0a6f4d9593a8b8ddd,subnet-07de34ad336485c76,...
-    Work bucket : s3://omics-output-us-east-1-123456789012
+    Account     : <ACCOUNT_ID>
+    VPC         : <VPC_ID>
+    Subnets     : <SUBNET_ID_1>,<SUBNET_ID_2>,...
+    Work bucket : s3://omics-output-us-east-1-<ACCOUNT_ID>
 ==> 3/5 Deploying AWS Batch stack 'nextflow-batch' (3-5 minutes)
 Successfully created/updated stack - nextflow-batch
     Job queue   : nextflow-batch-queue
@@ -454,8 +448,8 @@ NFCORE_SAREK:SAREK:FASTQC                                      2       21s     6
 TOTAL attributed (what the tasks used)                        23     3m45s    20m13s $   0.0109
 
 instance             type             $/h  jobs      span   incurred  attributed
-i-0d3f5d0d63b25774c  c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
-i-03ba1ebe848f52423  c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
+<INSTANCE_ID_1>     c6i.2xlarge   0.3400     6     4m07s $  0.0233 $   0.0023
+<INSTANCE_ID_2>     c6i.2xlarge   0.3400    17    6m14s+ $  0.0353 $   0.0086
 TOTAL incurred (what EC2 billed)                         $  0.0586 $   0.0109
 
 Utilisation (attributed / incurred): 19%  -- the rest is instance start-up, image pulls and idle time.
