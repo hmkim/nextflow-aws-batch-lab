@@ -26,17 +26,11 @@ Nextflow는 파이프라인 로직과 실행 장소를 분리합니다. 파이�
 
 ## 동작 구조
 
-Nextflow 자체(헤드 노드)는 실행하는 곳 어디서든 돌아갑니다. 워크숍 IDE, 노트북, EC2 인스턴스 모두 가능합니다. 프로세스마다 AWS Batch 작업(job) 하나를 제출하고, Batch는 컴퓨팅 환경의 EC2 인스턴스에 작업을 배치해 컨테이너 이미지를 받아 태스크 스크립트를 실행합니다. 입력은 Amazon S3에서 컨테이너로 스테이징되고 출력은 S3 작업 디렉터리에 다시 기록됩니다. 이때 시작 템플릿이 인스턴스에 설치한 AWS CLI를 Nextflow가 컨테이너 안에 마운트해 사용합니다.
+Nextflow 자체(헤드 노드)는 실행하는 곳 어디서든 돌아갑니다. 워크숍 IDE, 노트북, EC2 인스턴스 모두 가능합니다. 태스크를 실행할 때마다 AWS Batch 작업(job) 하나를 제출하고, Batch는 컴퓨팅 환경의 EC2 인스턴스에 작업을 배치해 컨테이너 이미지를 받아 태스크 스크립트를 실행합니다. 입력은 Amazon S3에서 컨테이너로 스테이징되고 출력은 S3 작업 디렉터리에 다시 기록됩니다. 이때 시작 템플릿이 인스턴스에 설치한 AWS CLI를 Nextflow가 컨테이너 안에 마운트해 사용합니다.
 
-```mermaid
-flowchart LR
-    IDE["헤드 노드<br/>nextflow run -profile batch"] -->|프로세스마다 SubmitJob| JQ["작업 큐<br/>nextflow-batch-queue"]
-    JQ --> CE["관리형 컴퓨팅 환경<br/>EC2, 0~16 vCPU 자동 확장"]
-    CE --> EC2["EC2 인스턴스<br/>ECS 에이전트 + /opt/aws-cli"]
-    EC2 --> C["태스크 컨테이너<br/>ubuntu:22.04"]
-    C <-->|스테이지 인/아웃| S3[("S3 작업 디렉터리")]
-    IDE <-->|.command.* 파일, 결과| S3
-```
+![Nextflow가 태스크를 AWS Batch에 제출하고, Batch가 EC2의 ECS 태스크에서 실행하며 데이터를 S3에 스테이징하는 구조.](images/nextflow-on-aws-batch.svg)
+
+회색 실선은 스케줄링과 제어, 초록색은 S3 데이터 이동, 보라색은 컨테이너 이미지 가져오기, 점선은 로깅 또는 선택적 Mountpoint 경로를 나타냅니다. 편집 가능한 원본은 [draw.io 파일](diagrams/nextflow-on-aws-batch.drawio)입니다.
 
 헤드 노드를 어디서 띄우는지는 생각보다 중요합니다. 노트북에서도 되지만 Nextflow 프로세스가 실행 내내 살아 있고 네트워크가 유지돼야 합니다. 이 랩처럼 EC2 인스턴스나 클라우드 IDE에서 실행하면 몇 시간짜리 파이프라인을 돌리는 동안 노트북을 닫아도 됩니다. 긴 실행을 터미널에서 떼어 놓을 때는 `nohup ... &` 대신 Nextflow 자체의 백그라운드 플래그를 씁니다(Nextflow가 터미널을 읽기 때문에 단순 `&` 작업은 정지됩니다):
 

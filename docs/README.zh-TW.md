@@ -26,17 +26,11 @@ Nextflow 把管線邏輯和執行位置分開。管線是一組用 channel 串�
 
 ## 運作架構
 
-Nextflow 本身(頭節點,head node)在你執行它的任何地方運作:工作坊 IDE、筆電、EC2 執行個體都可以。它為每個 process 提交一個 AWS Batch 工作(job),Batch 把工作放到運算環境的 EC2 執行個體上,拉取容器映像並執行任務指令碼。輸入從 Amazon S3 暫存到容器內,輸出再寫回 S3 工作目錄。這個過程使用啟動範本安裝在執行個體上的 AWS CLI,Nextflow 會把它掛載進容器裡。
+Nextflow 本身(頭節點,head node)在你執行它的任何地方運作:工作坊 IDE、筆電、EC2 執行個體都可以。每次執行 task 時,它會提交一個 AWS Batch 工作(job),Batch 把工作放到運算環境的 EC2 執行個體上,拉取容器映像並執行任務指令碼。輸入從 Amazon S3 暫存到容器內,輸出再寫回 S3 工作目錄。這個過程使用啟動範本安裝在執行個體上的 AWS CLI,Nextflow 會把它掛載進容器裡。
 
-```mermaid
-flowchart LR
-    IDE["頭節點<br/>nextflow run -profile batch"] -->|每個 process 一次 SubmitJob| JQ["工作佇列<br/>nextflow-batch-queue"]
-    JQ --> CE["受管運算環境<br/>EC2,0~16 vCPU 自動擴展"]
-    CE --> EC2["EC2 執行個體<br/>ECS agent + /opt/aws-cli"]
-    EC2 --> C["任務容器<br/>ubuntu:22.04"]
-    C <-->|stage in / out| S3[("S3 工作目錄")]
-    IDE <-->|.command.* 檔案、結果| S3
-```
+![Nextflow 將 task 提交到 AWS Batch,由 EC2 上的 ECS task 執行,並透過 S3 暫存資料。](images/nextflow-on-aws-batch.svg)
+
+灰色實線表示排程與控制,綠色表示 S3 資料移動,紫色表示拉取容器映像,虛線表示記錄或選用的 Mountpoint 路徑。可編輯的原始檔位於 [draw.io 檔案](diagrams/nextflow-on-aws-batch.drawio)。
 
 頭節點放在哪裡,比想像中重要。筆電也能跑,但 Nextflow 程序必須在整個執行期間保持存活且網路不中斷。像這個實作一樣在 EC2 執行個體或雲端 IDE 上執行,跑幾小時的管線時就可以把筆電合上。要把長時間執行從終端機脫離時,不要用 `nohup ... &`,改用 Nextflow 自己的背景旗標(Nextflow 會讀取終端機,所以單純用 `&` 的工作會被停住):
 
